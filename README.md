@@ -27,6 +27,143 @@ python3 -m http.server 8080
 # then visit http://localhost:8080/modules/hrms/
 ```
 
+It opens on a sign-in screen. On a browser that has not run it before, sign in
+as `mis@dynamicengineers.in` with `Biscs@Super2026` — the screen says as much —
+and it will ask you to replace that password straight away. Everything after
+that follows from the account, so read **Signing in, and who sees what** below.
+
+## Signing in, and who sees what
+
+There is no role dropdown. The module opens on a **sign-in gate**, and the
+account you sign in with decides everything after it — the role you hold, the
+company whose data you see, and the modules that appear in the sidebar.
+
+### The owner account
+
+On first run in a browser the installation seeds one **super admin**:
+
+| | |
+|---|---|
+| Email | `mis@dynamicengineers.in` |
+| Password | `Biscs@Super2026` — the sign-in screen says so until it is changed |
+| Holds | Every module of every company, plus the provider console |
+
+The first sign-in refuses to go further without replacing that password. The
+owner account cannot be deleted, demoted or suspended from inside the console,
+so an installation can never be left with nobody able to administer it.
+
+### Three gates, applied in order
+
+1. **The account.** Sign-in is by email address. A wrong password and an unknown
+   address give the same message, so the form does not leak which addresses
+   exist; both are written to the provisioning log. A suspended account, or one
+   attached to a closed company, is refused with the reason.
+2. **The company licence.** Each company is issued a set of modules. A module
+   the company does not hold does not exist for anyone in it — not in the
+   sidebar, and not by calling `navigate()` from the console.
+3. **The account's own grant.** A user's access is the company's licence
+   narrowed to what their account is granted. A grant for something the company
+   does not hold is never honoured: **the company licence is always the ceiling.**
+
+On top of those, the role still decides which screens inside a module a person
+may open — an HR admin and an employee both covered by *Time & Attendance* see
+the attendance register and their own attendance respectively, never each
+other's. Every one of these checks runs on navigation as well as on the menu,
+so hiding a menu entry is not the only thing standing in the way.
+
+> ⚠️ **This is entitlement, not security.** The module has no backend, so every
+> check above runs in the browser and the registry lives in `localStorage`. The
+> wrong screens are genuinely unreachable through the interface, but anyone who
+> can open the developer console can change the rules. Put the same model behind
+> a server before this holds anything that matters. See **Before you launch it**
+> at the end of this file.
+
+## The provider console
+
+Visible only to a super admin, under **Provider Console** in the sidebar.
+
+### Companies
+
+Every organisation on the installation, each with its plan, status, seat count,
+licence dates and the modules it holds. **Issue modules** opens the licensing
+screen: tick and untick against the full catalog, or start from a plan preset —
+**Starter**, **Professional** or **Enterprise** — and adjust from there. The plan
+name changes itself to *Custom* as soon as the set stops matching a preset.
+
+Dependencies are resolved for you. Issuing *Statutory & Tax* brings *Payroll
+Engine* with it; withdrawing *Payroll Engine* withdraws everything that needs it
+and says which. **Foundation** modules (Core HR, Employee Self-Service) are
+always issued and cannot be unticked.
+
+A company can be **Active**, **Suspended** or **Closed**. Suspending one drops
+it to the foundation modules until it is reactivated, with a banner saying so on
+every screen; closing it refuses sign-in for its accounts altogether. A licence
+past its end date is flagged the same way, and one inside 30 days of expiry
+warns.
+
+**Open** switches the provider's view to that company. Each company keeps its own
+copy of every HR collection under its own storage key, so switching tenant does
+not show one company another's people, payroll or attendance. A newly created
+company starts from the seeded demo dataset.
+
+### Users & Access
+
+Accounts are created per email address, against a company and a role — **HR
+Admin**, **Manager**, **Employee (ESS)** or a further **Super Admin**. Each
+account either:
+
+- **follows the company licence** — the default, so a module issued to the
+  company later reaches the account on its own; or
+- **is hand-picked** — tick exactly what this person may open. Modules the
+  company does not hold are greyed out and cannot be ticked.
+
+Linking an account to an **employee record** is what makes the self-service
+screens show that person's own attendance, leave and payslips. Passwords are set
+by the provider when the account is created and can be reset from the same
+screen; a new account is marked as still holding its issued password until the
+holder replaces it, which the account list shows.
+
+Passwords are stored salted and hashed — SHA-256 through WebCrypto where the
+browser offers it, and a deterministic fallback where it does not, with each
+record recording which was used. The plain text is never stored.
+
+### Module Catalog
+
+The 29 issuable modules across five categories — Foundation, Time, Payroll,
+Talent, Operations and Insight — with exactly which screens each one opens, what
+it requires, and how many companies hold it. This is the same definition the
+licensing screen and the sidebar read, so the catalog cannot drift from what is
+actually enforced.
+
+### Provisioning Log
+
+Every licence change, account change, password reset, sign-in and refused
+sign-in, with who did it and when — exportable to CSV, as are the licence
+register and the access register.
+
+### Seats
+
+A company carries a licensed seat count. Adding an employee past it asks first
+and flags the over-count on a banner, rather than silently letting a company
+outgrow what it pays for.
+
+## Before you launch it
+
+This is still a front-end module. Running it inside a company needs, at minimum:
+
+1. **A backend.** Move the account registry, the licence model and every access
+   check to a server. The client-side model here is the specification for it —
+   the catalog, the dependency graph and the three gates map straight onto API
+   authorisation — but it is not a substitute.
+2. **Real authentication.** Single sign-on against your directory, or at least
+   server-side password verification with rate limiting and session tokens.
+3. **Real storage.** `localStorage` is per-browser and per-device: a payroll run
+   saved on one machine does not exist on another, and clearing site data loses
+   it.
+4. **The statutory check** the payroll section already calls for — every rate,
+   ceiling and slab verified against the Finance Act and the state rules in
+   force, and the factory-return layouts signed off by a labour-law adviser.
+
 ## HR review changes (second pass)
 
 Nine items raised by HR, and where each landed:
@@ -673,12 +810,14 @@ round-trip — export, edit in Excel, re-import — works without reshaping colu
 | Manager inbox | Built from genuinely pending leave, expense and timesheet records; approving mutates the real ledger |
 | Audit trail | Every execution, approval, master-data change and export, exportable to CSV |
 
-Session state persists to browser `localStorage` via **Save** in the top bar;
-**Reset** clears it and reloads the seeded demo.
+Session state persists to browser `localStorage` via **Save** in the top bar,
+under the open company's own key; **Reset** clears that company's HR data and
+reloads the seeded demo, leaving companies, accounts and the provisioning log
+alone.
 
 ## What the module covers
 
-- **Role simulator** — HR Admin, Manager, and Employee (ESS) views from one topbar switch.
+- **Email sign-in with per-account access** — no role switch; the account decides the role, the company and the modules. See **Signing in, and who sees what**.
 - **Core HR** — org directory (SSOT), onboarding with auto-calculated salary structure,
   document centre & e-signatures, ATS kanban, org chart, announcement feed.
 - **Time & attendance** — universal edge gateway (biometric punch simulator with
@@ -707,6 +846,9 @@ previews and to the next payroll run.
 
 ## Status
 
-Front-end demo only. Data is seeded in `employees`, `helpdeskTickets`,
-`essLeaveHistory`, and `essExpenseHistory`; downloads, API syncs, and e-signature
-flows are simulated with toasts.
+Front-end only — no backend and no build step. The module opens on the sign-in
+gate; HR data is seeded in `employees`, `helpdeskTickets`, `essLeaveHistory` and
+`essExpenseHistory`, and the account and licence registry lives under its own
+`localStorage` key apart from tenant data. Downloads, API syncs and e-signature
+flows are simulated with toasts. Read **Before you launch it** above before
+putting this in front of a real company.

@@ -407,12 +407,95 @@
         /* Back to MAX ERP link (integration) */
         .back-to-erp { display:block; padding:10px 20px; color:#94a3b8; font-size:0.8rem; text-decoration:none; border-bottom:1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.02); }
         .back-to-erp:hover { color:#fff; background: rgba(255,255,255,0.06); }
+        /* ==================================================================
+           IDENTITY, ACCESS CONTROL & PROVIDER CONSOLE
+           ================================================================== */
+        :root { --super: #7c3aed; --super-soft: #ede9fe; }
+
+        /* Sign-in gate — covers the whole application until a user is authenticated. */
+        .auth-gate { position: fixed; inset: 0; z-index: 200; background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #312e81 100%);
+            display: flex; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; }
+        .auth-card { background: var(--bg-card); border-radius: 14px; width: 100%; max-width: 420px; padding: 32px;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.35); }
+        .auth-brand { display: flex; align-items: center; gap: 10px; font-size: 1.25rem; font-weight: 800; margin-bottom: 4px; }
+        .auth-brand-mark { width: 26px; height: 26px; background: var(--primary); border-radius: 6px; }
+        .auth-brand span { color: var(--accent); }
+        .auth-lede { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 22px; line-height: 1.5; }
+        .auth-card label { display: block; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 6px; }
+        .auth-card input { width: 100%; margin-bottom: 16px; }
+        .auth-error { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px;
+            padding: 10px 12px; font-size: 0.82rem; margin-bottom: 16px; display: none; }
+        .auth-note { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);
+            font-size: 0.74rem; color: var(--text-muted); line-height: 1.6; }
+
+        /* Topbar identity chip — replaces the old role simulator. */
+        .who { display: flex; align-items: center; gap: 10px; padding: 4px 10px 4px 4px; border: 1px solid var(--border);
+            border-radius: 999px; background: var(--bg-main); }
+        .who-avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--primary); color: white;
+            display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; flex: none; }
+        .who-avatar.is-super { background: var(--super); }
+        .who-name { font-size: 0.8rem; font-weight: 700; line-height: 1.2; }
+        .who-meta { font-size: 0.68rem; color: var(--text-muted); }
+        .tenant-chip { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px;
+            background: var(--super-soft); color: #5b21b6; font-size: 0.76rem; font-weight: 700; border: 1px solid #ddd6fe; }
+
+        /* Provider console */
+        .nav-item.is-super { color: #c4b5fd; }
+        .nav-item.is-super.active { border-left-color: var(--super); }
+        .module-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+        .module-tile { border: 1px solid var(--border); border-radius: 10px; padding: 14px; background: var(--bg-card);
+            display: flex; gap: 12px; align-items: flex-start; transition: 0.15s; }
+        .module-tile.on { border-color: var(--primary); background: #eff6ff; }
+        .module-tile.locked { opacity: 0.62; background: #f8fafc; }
+        /* The global label rule uppercases form labels; these tiles are labels
+           wrapping prose, so they opt back out of it. */
+        .module-tile, .module-tile h5, .module-tile p, .module-tile div, .module-tile .mod-meta {
+            text-transform: none; letter-spacing: normal; }
+        .module-tile { margin-bottom: 0; font-weight: 400; color: var(--text-dark); font-size: 0.8rem; }
+        .module-tile h5 { font-size: 0.86rem; font-weight: 700; margin-bottom: 3px; color: var(--text-dark); }
+        .module-tile p { font-size: 0.73rem; color: var(--text-muted); line-height: 1.45; font-weight: 400; }
+        .module-tile .mod-meta { font-size: 0.68rem; color: var(--text-muted); margin-top: 6px; }
+        .module-tile input[type=checkbox] { width: 16px; height: 16px; margin-top: 2px; flex: none; cursor: pointer; }
+        .cat-head { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+            color: var(--text-muted); margin: 18px 0 10px; }
+        .co-card { border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 12px; background: var(--bg-card); }
+        .co-card.active-tenant { border-color: var(--super); box-shadow: 0 0 0 2px var(--super-soft); }
+        .meter { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 6px; }
+        .meter > span { display: block; height: 100%; background: var(--primary); }
+        .meter.over > span { background: var(--danger); }
+        .access-banner { border-radius: 10px; padding: 14px 18px; margin-bottom: 20px; font-size: 0.85rem; display: none; }
+        .access-banner.warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+        .access-banner.danger { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+
     </style>
 </head>
 <body>
 
     <!-- Toast Container -->
     <div id="toast-container"></div>
+
+    <!-- ==========================================================
+         SIGN-IN GATE
+         No role dropdown: who you are is decided by the account you
+         sign in with, and what you can open follows from that account.
+         ========================================================== -->
+    <div class="auth-gate" id="auth-gate">
+        <div class="auth-card">
+            <div class="auth-brand"><div class="auth-brand-mark"></div>BISCS <span>OS</span></div>
+            <p class="auth-lede">Sign in with your work email. Your modules are whatever your
+                organisation is licensed for and your account has been granted &mdash; nothing else is shown.</p>
+            <div class="auth-error" id="auth-error"></div>
+            <label for="auth-email">Work email</label>
+            <input type="email" id="auth-email" autocomplete="username" placeholder="name@company.com"
+                   onkeydown="if(event.key==='Enter'){document.getElementById('auth-pass').focus();}">
+            <label for="auth-pass">Password</label>
+            <input type="password" id="auth-pass" autocomplete="current-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"
+                   onkeydown="if(event.key==='Enter'){signIn();}">
+            <button class="btn btn-primary" style="width:100%; padding:11px;" id="auth-submit" onclick="signIn()">Sign in</button>
+            <div class="auth-note" id="auth-note"></div>
+        </div>
+    </div>
 
     <!-- --- SIDEBAR --- -->
     <div class="sidebar">
@@ -422,6 +505,13 @@
         </div>
         <a href="../../index.html" class="back-to-erp">← Back to MAX ERP</a>
         <div class="nav-items" id="sidebar-nav">
+
+            <!-- PROVIDER / SUPER ADMIN -->
+            <div class="nav-label" data-role="super" style="display:none;">Provider Console</div>
+            <div class="nav-item is-super" data-role="super" style="display:none;" onclick="navigate('provider-companies')">🏢 Companies</div>
+            <div class="nav-item is-super" data-role="super" style="display:none;" onclick="navigate('provider-users')">🔐 Users &amp; Access</div>
+            <div class="nav-item is-super" data-role="super" style="display:none;" onclick="navigate('provider-modules')">🧩 Module Catalog</div>
+            <div class="nav-item is-super" data-role="super" style="display:none;" onclick="navigate('provider-log')">📜 Provisioning Log</div>
 
             <!-- GLOBAL (All Roles) -->
             <div class="nav-label" data-role="admin manager employee">Company</div>
@@ -520,20 +610,106 @@
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;" id="topbar-subtitle">FY 2026-27 • New Tax Regime Default</div>
             </div>
             <div class="user-profile">
-                <!-- ROLE SIMULATOR TOGGLE -->
-                <select id="role-simulator" onchange="switchRole(this.value)" style="padding: 6px 12px; border-radius: 6px; background: var(--bg-main); border: 1px solid var(--border); font-weight: 600; cursor: pointer; color: var(--text-dark);">
-                    <option value="admin">👑 HR Admin View</option>
-                    <option value="manager">👔 Manager View</option>
-                    <option value="employee">👤 Employee View</option>
-                </select>
+                <!-- Signed-in identity. There is no role switch: the account decides the role. -->
+                <div class="tenant-chip" id="topbar-tenant" style="display:none;"></div>
                 <button class="btn btn-outline" style="padding:6px 10px; font-size:0.78rem;" onclick="saveState()" title="Save this session to browser storage">💾 Save</button>
                 <button class="btn btn-outline" style="padding:6px 10px; font-size:0.78rem;" onclick="resetDemoData()" title="Clear saved data and reload">↺ Reset</button>
-                <div class="avatar">U</div>
+                <div class="who" title="Signed in">
+                    <div class="who-avatar" id="who-avatar">?</div>
+                    <div>
+                        <div class="who-name" id="who-name">&mdash;</div>
+                        <div class="who-meta" id="who-meta">&mdash;</div>
+                    </div>
+                </div>
+                <button class="btn btn-outline" style="padding:6px 10px; font-size:0.78rem;" onclick="signOut()" title="Sign out">Sign out</button>
             </div>
         </div>
 
         <div class="content-area">
+            <div class="access-banner" id="licence-banner"></div>
             <div id="urgent-notice-banner"></div>
+
+            <!-- ========================================== -->
+            <!-- PROVIDER CONSOLE (super admin only)        -->
+            <!-- ========================================== -->
+
+            <!-- COMPANIES -->
+            <section id="view-provider-companies" class="view-section">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:15px; flex-wrap:wrap;">
+                    <div>
+                        <h2>Companies</h2>
+                        <p style="font-size: 0.9rem; color: var(--text-muted);">Every organisation on this installation, and the modules each one is issued. A company only ever sees what is ticked for it.</p>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn btn-outline" onclick="exportCompanyRegister()">⬇️ Licence Register (CSV)</button>
+                        <button class="btn btn-primary" onclick="openCompanyEditor('')">+ Add Company</button>
+                    </div>
+                </div>
+                <div class="stat-strip" id="provider-stats"></div>
+                <div id="provider-company-list"></div>
+            </section>
+
+            <!-- USERS & ACCESS -->
+            <section id="view-provider-users" class="view-section">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:15px; flex-wrap:wrap;">
+                    <div>
+                        <h2>Users &amp; Access</h2>
+                        <p style="font-size: 0.9rem; color: var(--text-muted);">Access is granted per email address. A user's modules are what their company is licensed for, narrowed to what their own account is granted.</p>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn btn-outline" onclick="exportUserRegister()">⬇️ Access Register (CSV)</button>
+                        <button class="btn btn-primary" onclick="openUserEditor('')">+ Add User</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:15px;">
+                        <input type="text" id="user-search" placeholder="Search by name or email…" oninput="renderProviderUsers()" style="max-width:280px;">
+                        <select id="user-company-filter" onchange="renderProviderUsers()" style="width:auto;"></select>
+                        <select id="user-role-filter" onchange="renderProviderUsers()" style="width:auto;">
+                            <option value="">All roles</option>
+                            <option value="super">Super Admin</option>
+                            <option value="admin">HR Admin</option>
+                            <option value="manager">Manager</option>
+                            <option value="employee">Employee (ESS)</option>
+                        </select>
+                    </div>
+                    <div style="overflow-x:auto;">
+                    <table>
+                        <thead><tr><th>User</th><th>Email</th><th>Company</th><th>Role</th><th>Module access</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead>
+                        <tbody id="provider-user-table"></tbody>
+                    </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MODULE CATALOG -->
+            <section id="view-provider-modules" class="view-section">
+                <div style="margin-bottom:20px;">
+                    <h2>Module Catalog</h2>
+                    <p style="font-size: 0.9rem; color: var(--text-muted);">Everything that can be issued, what each one contains, and how many companies hold it. Modules a screen depends on are issued with it automatically.</p>
+                </div>
+                <div class="stat-strip" id="catalog-stats"></div>
+                <div id="catalog-list"></div>
+            </section>
+
+            <!-- PROVISIONING LOG -->
+            <section id="view-provider-log" class="view-section">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:15px; flex-wrap:wrap;">
+                    <div>
+                        <h2>Provisioning Log</h2>
+                        <p style="font-size: 0.9rem; color: var(--text-muted);">Every licence change, account change, sign-in and refused sign-in, with who did it and when.</p>
+                    </div>
+                    <button class="btn btn-outline" onclick="exportProvisioningLog()">⬇️ Export CSV</button>
+                </div>
+                <div class="card">
+                    <div style="overflow-x:auto;">
+                    <table>
+                        <thead><tr><th>When</th><th>By</th><th>Event</th><th>Subject</th><th>Detail</th></tr></thead>
+                        <tbody id="provisioning-log-table"></tbody>
+                    </table>
+                    </div>
+                </div>
+            </section>
 
             <!-- ========================================== -->
             <!-- SHARED MODULES                             -->
@@ -2965,6 +3141,27 @@
     </div>
 
     <!-- --- MODALS --- -->
+    <div class="modal-overlay" id="modal-company">
+        <div class="modal" style="max-width: 900px;">
+            <div class="modal-header"><h3 id="company-modal-title">Company</h3><button class="btn btn-outline" style="padding: 4px 8px;" onclick="closeModal('modal-company')">✕</button></div>
+            <div class="modal-body" id="company-modal-body"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-user">
+        <div class="modal" style="max-width: 860px;">
+            <div class="modal-header"><h3 id="user-modal-title">User</h3><button class="btn btn-outline" style="padding: 4px 8px;" onclick="closeModal('modal-user')">✕</button></div>
+            <div class="modal-body" id="user-modal-body"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-password">
+        <div class="modal" style="max-width: 460px;">
+            <div class="modal-header"><h3>Change password</h3><button class="btn btn-outline" style="padding: 4px 8px;" onclick="closeModal('modal-password')">✕</button></div>
+            <div class="modal-body" id="password-modal-body"></div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="modal-emp-edit">
         <div class="modal" style="max-width: 720px;">
             <div class="modal-header"><h3>Edit Employee</h3><button class="btn btn-outline" style="padding: 4px 8px;" onclick="closeModal('modal-emp-edit')">✕</button></div>
@@ -6423,6 +6620,7 @@ function renderCalendar(mode) {
 
 // --- 2. NAVIGATION & ROLES ---
 function navigate(viewId) {
+    if (!accessGuard(viewId)) return;
     document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     document.getElementById(`view-${viewId}`).classList.add('active');
@@ -6452,7 +6650,9 @@ const VIEW_TITLES = {
         'ess-profile': 'My Profile Vault', 'ess-attendance': 'My Attendance', 'ess-calendar': 'My Calendar', 'ess-timesheets': 'My Timesheets', 'ess-travel': 'Travel Requests', 'ess-leaves': 'Leave Center',
         'ess-expenses': 'My Expenses', 'ess-benefits': 'My Benefits & GMC', 'ess-performance': 'My OKRs & Appraisals', 'ess-helpdesk': 'My Helpdesk Tickets',
         'ess-learning': 'Learning & Courses', 'ess-engagement': 'Surveys & Feedback', 'ess-payslips': 'My Payslips', 'ess-tax': 'Tax Declarations', 'ess-directory': 'Peer Directory',
-        'manager-inbox': 'Approval Inbox'
+        'manager-inbox': 'Approval Inbox',
+        'provider-companies': 'Companies & Licensing', 'provider-users': 'Users & Access Control',
+        'provider-modules': 'Module Catalog', 'provider-log': 'Provisioning Log'
 };
 function setTopbarTitle(viewId) {
     const titleEl = document.getElementById('topbar-title');
@@ -6464,7 +6664,12 @@ function setTopbarTitle(viewId) {
 function applyRoleVisibility() {
     document.querySelectorAll('[data-role]').forEach(el => {
         if (!el.dataset.role) return;
-        const allowed = el.dataset.role.split(/\s+/).indexOf(currentRole) !== -1;
+        const roles = el.dataset.role.split(/\s+/);
+        // The provider account sees every role's screens; provider-only screens
+        // are never shown to anyone else.
+        const allowed = roles.indexOf('super') !== -1
+            ? currentRole === 'super'
+            : (roles.indexOf(currentRole) !== -1 || currentRole === 'super');
         if (!allowed) { el.style.display = 'none'; return; }
         // Restore the display each element type expects when it is allowed.
         if (el.classList.contains('nav-label')) el.style.display = 'block';
@@ -6473,23 +6678,16 @@ function applyRoleVisibility() {
     });
     // The special powers entry is gated by the lock as well as by the role.
     const sp = document.getElementById('nav-special-powers');
-    if (sp) sp.style.display = (specialPowers.unlocked && currentRole === 'admin') ? 'flex' : 'none';
+    if (sp) sp.style.display = (specialPowers.unlocked && (currentRole === 'admin' || currentRole === 'super')) ? 'flex' : 'none';
+    // Module entitlement is applied on top of the role gate.
+    if (typeof applyAccessVisibility === 'function' && session) applyAccessVisibility();
 }
-function switchRole(role) {
-    currentRole = role;
-    // Keep the simulator dropdown in step when the role is set from code.
-    const sim = document.getElementById('role-simulator');
-    if (sim && sim.value !== role) sim.value = role;
-    audit('Role switched', 'Viewing as ' + role, 'System');
-    applyRoleVisibility();
-    refreshNoticeViews();
-    if (role === 'admin') navigateProgrammatic('dashboard');
-    if (role === 'employee') { initESS(); navigateProgrammatic('ess-profile'); }
-    if (role === 'manager') { renderApprovalInbox(); navigateProgrammatic('manager-inbox'); }
-}
+// The role simulator is gone: the signed-in account decides the role, and
+// applySessionRole (in the identity engine below) is the only thing that sets it.
 
 // Programmatic navigate (no click event) — mirrors navigate() but sets active nav by data.
 function navigateProgrammatic(viewId) {
+    if (!accessGuard(viewId)) return;
     document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
     const view = document.getElementById(`view-${viewId}`);
     if (view) view.classList.add('active');
@@ -6503,6 +6701,10 @@ function navigateProgrammatic(viewId) {
 
 // Per-view refresh, shared by navigate() and navigateProgrammatic().
 function runViewHooks(viewId) {
+    if (viewId === 'provider-companies') renderProviderCompanies();
+    if (viewId === 'provider-users') renderProviderUsers();
+    if (viewId === 'provider-modules') renderModuleCatalog();
+    if (viewId === 'provider-log') renderProvisioningLog();
     if (viewId === 'directory') renderDirectory();
     if (viewId === 'import') renderImportMapping();
     if (viewId === 'payroll') { if (payrollStage === 0) initPayrollEngine(); else renderPayrollUI(); }
@@ -6693,6 +6895,7 @@ function saveEmployee() {
     const role = val('emp-role');
     const ctc = parseFloat(val('emp-ctc'));
     if (!name || !role || !ctc) return showToast("Please fill all required fields.", "error");
+    if (!seatCheck()) return;
 
     const newId = 'EMP-' + String(nextEmpSeq++).padStart(3, '0');
     const struct = calculateSalaryStructure(ctc);
@@ -14169,18 +14372,24 @@ const PERSISTED = ['employees', 'nextEmpSeq', 'leaveLedger', 'nextLeaveSeq', 'le
 // The persisted collections are declared with var rather than let on purpose:
 // saveState reads them off window, and a top-level let binding never lands there,
 // so a let would make Save quietly write an empty snapshot.
-function saveState() {
+// Each company's data is stored under its own key, so one tenant's save never
+// lands in another's. tenantStoreKey lives in the identity engine below.
+function saveState(silent) {
     try {
         const snap = {};
         PERSISTED.forEach(k => { snap[k] = window[k]; });
-        localStorage.setItem(STORE_KEY, JSON.stringify(snap));
-        showToast('Session saved to this browser.', 'success');
-        audit('State saved', PERSISTED.length + ' collections', 'System');
-    } catch (err) { showToast('Could not save: ' + err.message, 'error'); }
+        localStorage.setItem(tenantStoreKey(activeCompanyId), JSON.stringify(snap));
+        const c = typeof activeCompany === 'function' ? activeCompany() : null;
+        if (c) c.lastHeadcount = employees.filter(e => !e.exitDate || e.exitDate >= DEMO_TODAY).length;
+        if (typeof saveIdentity === 'function') saveIdentity();
+        if (silent) return;
+        showToast('Session saved for ' + (c ? c.name : 'this company') + '.', 'success');
+        audit('State saved', PERSISTED.length + ' collections · ' + (c ? c.name : ''), 'System');
+    } catch (err) { if (!silent) showToast('Could not save: ' + err.message, 'error'); }
 }
 function loadState(silent) {
     try {
-        const raw = localStorage.getItem(STORE_KEY);
+        const raw = localStorage.getItem(tenantStoreKey(activeCompanyId));
         if (!raw) { if (!silent) showToast('No saved session found in this browser.', 'warning'); return false; }
         const snap = JSON.parse(raw);
         PERSISTED.forEach(k => { if (snap[k] !== undefined) window[k] = snap[k]; });
@@ -14189,9 +14398,14 @@ function loadState(silent) {
         return true;
     } catch (err) { if (!silent) showToast('Could not restore: ' + err.message, 'error'); return false; }
 }
+// Resets the HR data of the company currently open. Companies, accounts and the
+// provisioning log are the provider's registry and are deliberately left alone;
+// "Reset everything" in the provider console is what clears those.
 function resetDemoData() {
-    if (!confirm('Reset all demo data and reload?\n\nThis clears the saved session in this browser.')) return;
-    try { localStorage.removeItem(STORE_KEY); } catch (err) { /* storage unavailable */ }
+    const c = typeof activeCompany === 'function' ? activeCompany() : null;
+    if (!confirm('Reset the HR data for ' + (c ? c.name : 'this company') + ' and reload?\n\n' +
+        'Companies, user accounts and the provisioning log are not touched.')) return;
+    try { localStorage.removeItem(tenantStoreKey(activeCompanyId)); } catch (err) { /* storage unavailable */ }
     location.reload();
 }
 function refreshEverything() {
@@ -14926,11 +15140,1263 @@ function sendWAMessage() {
     }, 600);
 }
 
+// ==========================================================================
+// IDENTITY, TENANCY & MODULE ENTITLEMENT
+//
+// Three things decide what a person sees, in this order:
+//   1. the account they signed in with (email + password) — there is no role
+//      switch, so nobody can look at a screen by picking a different role;
+//   2. the modules their company has been issued by the provider;
+//   3. the modules their own account has been granted, which can only ever be
+//      a subset of what the company holds.
+// The super admin sits above all three and holds everything.
+//
+// NOTE ON SECURITY. This module has no backend, so every check below runs in
+// the browser and the registry lives in localStorage. That makes it a real
+// entitlement model — the wrong screens are genuinely not reachable through
+// the UI — but not a security boundary: anyone who can open the developer
+// console can change it. Put the same rules behind a server before this holds
+// anything that matters.
+// ==========================================================================
+
+// --- The catalog: everything that can be issued to a company ---
+// `views` lists the screens the module unlocks. `needs` are modules that must
+// be issued alongside it, resolved automatically when it is ticked.
+const MODULE_CATALOG = [
+    { key: 'core-hr', name: 'Core HR & Org', icon: '👥', cat: 'Foundation', core: true, needs: [],
+      desc: 'Command centre, employee directory, bulk import, org chart, onboarding journeys, probation and system configuration.',
+      views: ['dashboard', 'directory', 'import', 'orgchart', 'journeys', 'probation', 'settings'] },
+    { key: 'ess', name: 'Employee Self-Service', icon: '📱', cat: 'Foundation', core: true, needs: [],
+      desc: 'The employee’s own profile vault, request tracker and peer directory. Needed by every employee-facing module.',
+      views: ['ess-profile', 'ess-requests', 'ess-directory'] },
+    { key: 'notices', name: 'Notice Board', icon: '📢', cat: 'Foundation', needs: [],
+      desc: 'Targeted official notices with read and acknowledgement tracking. A holiday declaration writes to the calendar and moves payable days.',
+      views: ['feed', 'notices'] },
+    { key: 'workflows', name: 'Approval Workflows', icon: '🔀', cat: 'Foundation', needs: [],
+      desc: 'Configurable approval chains per request type, with SLA clocks, escalation and the approval inbox.',
+      views: ['workflows', 'manager-inbox'] },
+    { key: 'audit', name: 'Audit Trail', icon: '🔍', cat: 'Foundation', needs: [],
+      desc: 'Every execution, approval, master-data change and export, exportable to CSV.',
+      views: ['audit'] },
+
+    { key: 'attendance', name: 'Time & Attendance', icon: '⏱️', cat: 'Time', needs: ['ess'],
+      desc: 'Punch log and clock in/out, the universal edge gateway, attendance register, geo-fencing, OD and punch requests, and the special powers console.',
+      views: ['attendance', 'attendance-register', 'att-requests', 'special-powers', 'ess-attendance', 'ess-att-requests', 'ess-calendar'] },
+    { key: 'shifts', name: 'Shift Scheduling', icon: '📅', cat: 'Time', needs: ['attendance'],
+      desc: 'Shift roster and relay planning across the month.',
+      views: ['shifts'] },
+    { key: 'timesheets', name: 'Project Timesheets', icon: '⌛', cat: 'Time', needs: ['ess'],
+      desc: 'Timesheet submission, manager approval, billable value at project rates and utilisation.',
+      views: ['timesheets', 'ess-timesheets'] },
+    { key: 'leave', name: 'Leave Management', icon: '🌴', cat: 'Time', needs: ['ess'],
+      desc: 'Leave rule set, one shared rule engine, the disbursement ledger, accrual runs, year-end close and encashment.',
+      views: ['leave', 'ess-leaves'] },
+
+    { key: 'payroll', name: 'Payroll Engine', icon: '💰', cat: 'Payroll', needs: ['core-hr'],
+      desc: 'Six-stage payroll run, payslip vault, statutory payslips and the bank, register and GL outputs.',
+      views: ['payroll', 'payslips', 'ess-payslips'] },
+    { key: 'statutory', name: 'Statutory & Tax', icon: '🏛️', cat: 'Payroll', needs: ['payroll'],
+      desc: 'PF, ESIC, professional tax and TDS configuration, Form 16 projections, regime comparison and employee tax declarations.',
+      views: ['compliance', 'form16', 'ess-tax'] },
+    { key: 'loans', name: 'Loans & Advances', icon: '🏦', cat: 'Payroll', needs: ['payroll'],
+      desc: 'Amortised loan schedules with recovery posted on payroll execution and reversed on reopen.',
+      views: ['loans'] },
+    { key: 'expenses', name: 'Expense Claims', icon: '🧾', cat: 'Payroll', needs: ['ess'],
+      desc: 'Claim workflow to reimbursement with a per-category expense policy and violation flags.',
+      views: ['expenses', 'ess-expenses'] },
+    { key: 'travel', name: 'Travel Desk', icon: '✈️', cat: 'Payroll', needs: ['ess'],
+      desc: 'Corporate travel requests routed through the admin and travel desk chain.',
+      views: ['travel', 'ess-travel'] },
+    { key: 'ewa', name: 'Earned Wage Access', icon: '💸', cat: 'Payroll', needs: ['payroll'],
+      desc: 'On-demand access to wages already earned in the running period.',
+      views: ['ewa'] },
+
+    { key: 'recruitment', name: 'Recruitment (ATS)', icon: '🎯', cat: 'Talent', needs: ['core-hr'],
+      desc: 'Five-stage hiring pipeline with screening scores, interview scheduling, feedback and ATS-to-onboarding handover.',
+      views: ['recruitment'] },
+    { key: 'performance', name: 'Performance & Talent', icon: '📈', cat: 'Talent', needs: ['ess'],
+      desc: 'Cascading goals, the review cycle, calibration, the 9-box grid, continuous feedback, 1-on-1s and peer recognition.',
+      views: ['performance', 'recognition', 'succession', 'ess-performance'] },
+    { key: 'compensation', name: 'Compensation Planning', icon: '💹', cat: 'Talent', needs: ['core-hr'],
+      desc: 'Increment cycles against a budget, salary grades and compa-ratio, and effective-dated revisions that generate arrears.',
+      views: ['comp-planning', 'revisions'] },
+    { key: 'learning', name: 'Learning & Development', icon: '📚', cat: 'Talent', needs: ['ess'],
+      desc: 'Course catalogue and learning progress for employees.',
+      views: ['ess-learning'] },
+    { key: 'engagement', name: 'Engagement & Surveys', icon: '🌟', cat: 'Talent', needs: ['ess'],
+      desc: 'eNPS, pulse surveys and the engagement dashboard.',
+      views: ['engagement', 'ess-engagement'] },
+    { key: 'offboarding', name: 'Exit & Offboarding', icon: '👋', cat: 'Talent', needs: ['core-hr'],
+      desc: 'Department-wise exit clearance blocking full & final, gratuity, encashment, loan settlement and asset recovery.',
+      views: ['offboarding'] },
+
+    { key: 'documents', name: 'Documents & e-Sign', icon: '📁', cat: 'Operations', needs: [],
+      desc: 'Document centre with e-signature routing.',
+      views: ['documents'] },
+    { key: 'letters', name: 'Letter Generator', icon: '📜', cat: 'Operations', needs: ['core-hr'],
+      desc: 'HR letters including the appointment letter behind its HR unlock.',
+      views: ['letters'] },
+    { key: 'assets', name: 'Asset Inventory', icon: '💻', cat: 'Operations', needs: [],
+      desc: 'Assign and return company assets with custody history, flagged at exit.',
+      views: ['assets'] },
+    { key: 'helpdesk', name: 'IT / HR Helpdesk', icon: '🎫', cat: 'Operations', needs: ['ess'],
+      desc: 'Ticketing with categories mapped to teams, SLA multipliers and escalation.',
+      views: ['helpdesk', 'ess-helpdesk'] },
+    { key: 'benefits', name: 'Benefits & GMC', icon: '🏥', cat: 'Operations', needs: ['ess'],
+      desc: 'Group medical cover and benefit enrolment visible to the employee.',
+      views: ['ess-benefits'] },
+
+    { key: 'analytics', name: 'People Analytics', icon: '📊', cat: 'Insight', needs: [],
+      desc: 'Eight charts on headcount, cost, tenure, salary bands, leave, exits and a transparent attrition-risk score.',
+      views: ['analytics'] },
+    { key: 'reports', name: 'Report Center', icon: '📈', cat: 'Insight', needs: [],
+      desc: 'Attendance, wage and statutory registers plus the factory returns, each previewable, printable and downloadable.',
+      views: ['reports'] },
+    { key: 'intelligence', name: 'AI & Integrations', icon: '🧠', cat: 'Insight', needs: [],
+      desc: 'DomeBox task sync, the flight-risk predictor and the WhatsApp zero-app assistant.',
+      views: ['domebox', 'intelligence', 'whatsapp'] }
+];
+
+// view id -> module key, built once from the catalog.
+const VIEW_MODULE = (function () {
+    const m = {};
+    MODULE_CATALOG.forEach(mod => mod.views.forEach(v => { m[v] = mod.key; }));
+    return m;
+})();
+const PROVIDER_VIEWS = ['provider-companies', 'provider-users', 'provider-modules', 'provider-log'];
+// Which roles may open which screen, read off the sidebar's own data-role
+// attributes so the guard and the menu can never disagree. A screen with no
+// nav entry of its own is opened from inside another screen and inherits that
+// screen's gate.
+var VIEW_ROLES = {};
+function buildViewRoles() {
+    VIEW_ROLES = {};
+    document.querySelectorAll('.nav-item[data-role]').forEach(el => {
+        const m = (el.getAttribute('onclick') || '').match(/navigate\('([^']+)'\)/);
+        if (!m) return;
+        const roles = VIEW_ROLES[m[1]] || (VIEW_ROLES[m[1]] = []);
+        el.dataset.role.split(/\s+/).forEach(r => { if (roles.indexOf(r) === -1) roles.push(r); });
+    });
+}
+function roleMayOpen(viewId) {
+    if (currentRole === 'super') return true;
+    const roles = VIEW_ROLES[viewId];
+    if (!roles || !roles.length) return true;
+    return roles.indexOf(currentRole) !== -1;
+}
+function moduleByKey(key) { return MODULE_CATALOG.find(m => m.key === key) || null; }
+function moduleName(key) { const m = moduleByKey(key); return m ? m.name : key; }
+const ALL_MODULE_KEYS = MODULE_CATALOG.map(m => m.key);
+const CORE_MODULE_KEYS = MODULE_CATALOG.filter(m => m.core).map(m => m.key);
+
+// Ticking a module pulls in whatever it needs; untick removes whatever needed it.
+function expandModules(keys) {
+    const out = new Set(CORE_MODULE_KEYS);
+    (keys || []).forEach(k => out.add(k));
+    let changed = true;
+    while (changed) {
+        changed = false;
+        Array.from(out).forEach(k => {
+            const m = moduleByKey(k);
+            if (!m) { out.delete(k); changed = true; return; }
+            m.needs.forEach(n => { if (!out.has(n)) { out.add(n); changed = true; } });
+        });
+    }
+    return ALL_MODULE_KEYS.filter(k => out.has(k));
+}
+function dependentsOf(key) {
+    return MODULE_CATALOG.filter(m => m.needs.indexOf(key) !== -1).map(m => m.key);
+}
+
+// --- Plans: a named starting set, editable afterwards ---
+const PLANS = {
+    'Starter': ['core-hr', 'ess', 'notices', 'attendance', 'leave', 'audit'],
+    'Professional': ['core-hr', 'ess', 'notices', 'workflows', 'audit', 'attendance', 'shifts', 'leave',
+        'timesheets', 'payroll', 'statutory', 'expenses', 'documents', 'letters', 'reports', 'helpdesk'],
+    'Enterprise': ALL_MODULE_KEYS.slice(),
+    'Custom': null
+};
+
+// --- Registry state (kept apart from tenant HR data) ---
+var companies = [
+    { id: 'CO-001', name: 'Dynamic Engineers', code: 'DE', industry: 'Engineering & Manufacturing',
+      status: 'Active', plan: 'Enterprise', modules: ALL_MODULE_KEYS.slice(), seats: 250,
+      activeFrom: '2026-04-01', validTill: '2027-03-31', contact: 'mis@dynamicengineers.in', notes: 'Founding tenant.' }
+];
+var nextCompanySeq = 2;
+var appUsers = [];
+var nextUserSeq = 1;
+var provisioningLog = [];
+var session = null;          // { email, name, role, companyId, modules }
+var activeCompanyId = 'CO-001';
+
+const SUPER_EMAIL = 'mis@dynamicengineers.in';
+const DEFAULT_SUPER_PASSWORD = 'Biscs@Super2026';
+const IDENTITY_KEY = 'biscs-hrms-identity-v1';
+
+function companyById(id) { return companies.find(c => c.id === id) || null; }
+function companyName(id) { const c = companyById(id); return c ? c.name : '—'; }
+function userByEmail(email) {
+    const e = String(email || '').trim().toLowerCase();
+    return appUsers.find(u => u.email === e) || null;
+}
+function activeCompany() { return companyById(activeCompanyId); }
+
+// --- Passwords -----------------------------------------------------------
+// SHA-256 through WebCrypto where the browser offers it. A page opened straight
+// from a file is not a secure context in some browsers and has no crypto.subtle,
+// so a deterministic fallback is used and the record says which was applied, so
+// verification always matches the way the hash was made.
+function fallbackHash(text) {
+    let h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (let i = 0; i < text.length; i++) {
+        const c = text.charCodeAt(i);
+        h1 = Math.imul(h1 ^ c, 16777619) >>> 0;
+        h2 = Math.imul(h2 + c + i, 2246822519) >>> 0;
+    }
+    return ('00000000' + h1.toString(16)).slice(-8) + ('00000000' + h2.toString(16)).slice(-8);
+}
+function makeSalt() {
+    try {
+        const a = new Uint8Array(8);
+        crypto.getRandomValues(a);
+        return Array.from(a).map(b => ('0' + b.toString(16)).slice(-2)).join('');
+    } catch (err) {
+        return String(Date.now().toString(16)) + Math.floor(Math.random() * 1e8).toString(16);
+    }
+}
+function hashPassword(plain, salt) {
+    const material = salt + '·' + plain;
+    const subtle = (typeof crypto !== 'undefined' && crypto.subtle) ? crypto.subtle : null;
+    if (!subtle) return Promise.resolve({ algo: 'fallback', hash: fallbackHash(material) });
+    return subtle.digest('SHA-256', new TextEncoder().encode(material))
+        .then(buf => ({ algo: 'sha256', hash: Array.from(new Uint8Array(buf)).map(b => ('0' + b.toString(16)).slice(-2)).join('') }))
+        .catch(() => ({ algo: 'fallback', hash: fallbackHash(material) }));
+}
+function verifyPassword(user, plain) {
+    if (!user || !user.salt) return Promise.resolve(false);
+    if (user.algo === 'fallback') return Promise.resolve(fallbackHash(user.salt + '·' + plain) === user.hash);
+    return hashPassword(plain, user.salt).then(r => r.hash === user.hash);
+}
+function setUserPassword(user, plain) {
+    const salt = makeSalt();
+    return hashPassword(plain, salt).then(r => {
+        user.salt = salt; user.hash = r.hash; user.algo = r.algo;
+        user.mustChangePassword = false;
+        user.passwordSetOn = new Date().toISOString().slice(0, 10);
+        return user;
+    });
+}
+function passwordComplaint(pw) {
+    if (!pw || pw.length < 8) return 'Use at least eight characters.';
+    if (!/[A-Za-z]/.test(pw) || !/[0-9]/.test(pw)) return 'Use at least one letter and one number.';
+    return '';
+}
+
+// --- Registry persistence ------------------------------------------------
+const IDENTITY_KEYS = ['companies', 'nextCompanySeq', 'appUsers', 'nextUserSeq', 'provisioningLog', 'activeCompanyId'];
+function saveIdentity() {
+    try {
+        const snap = {};
+        IDENTITY_KEYS.forEach(k => { snap[k] = window[k]; });
+        localStorage.setItem(IDENTITY_KEY, JSON.stringify(snap));
+    } catch (err) { /* storage unavailable — the session still works, it just will not survive a reload */ }
+}
+function loadIdentity() {
+    try {
+        const raw = localStorage.getItem(IDENTITY_KEY);
+        if (!raw) return false;
+        const snap = JSON.parse(raw);
+        IDENTITY_KEYS.forEach(k => { if (snap[k] !== undefined) window[k] = snap[k]; });
+        return true;
+    } catch (err) { return false; }
+}
+function provLog(event, subject, detail) {
+    provisioningLog.unshift({
+        ts: new Date().toLocaleString('en-GB'),
+        by: session ? session.email : 'system',
+        event: event, subject: subject || '', detail: detail || ''
+    });
+    if (provisioningLog.length > 500) provisioningLog.pop();
+    saveIdentity();
+    const el = document.getElementById('provisioning-log-table');
+    if (el) renderProvisioningLog();
+}
+
+// The owner account is seeded once, with a default password that the first
+// sign-in insists on replacing.
+function ensureSuperAdmin() {
+    if (userByEmail(SUPER_EMAIL)) return Promise.resolve();
+    const user = {
+        id: 'USR-' + String(nextUserSeq++).padStart(3, '0'),
+        email: SUPER_EMAIL, name: 'Super Admin', role: 'super', companyId: '',
+        empId: '', modules: ALL_MODULE_KEYS.slice(), allModules: true,
+        status: 'Active', createdOn: DEMO_TODAY, lastSignIn: '', salt: '', hash: '', algo: ''
+    };
+    appUsers.push(user);
+    return setUserPassword(user, DEFAULT_SUPER_PASSWORD).then(() => {
+        user.mustChangePassword = true;
+        saveIdentity();
+    });
+}
+
+// --- Access resolution ---------------------------------------------------
+// A company's issue list, with its dependencies resolved and expired or
+// suspended companies holding nothing but the core.
+function licensedModules(companyId) {
+    const c = companyById(companyId);
+    if (!c) return [];
+    if (c.status !== 'Active') return CORE_MODULE_KEYS.slice();
+    return expandModules(c.modules);
+}
+function licenceExpired(c) {
+    return !!(c && c.validTill && c.validTill < DEMO_TODAY);
+}
+// What one account actually holds: the company's issue list narrowed to the
+// account's own grants. A grant for something the company does not hold is
+// simply not honoured — the company licence is always the ceiling.
+function effectiveModules(user) {
+    if (!user) return [];
+    if (user.role === 'super') return ALL_MODULE_KEYS.slice();
+    const lic = licensedModules(user.companyId);
+    if (user.allModules) return lic;
+    const granted = expandModules(user.modules || []);
+    return lic.filter(k => granted.indexOf(k) !== -1);
+}
+function canAccessModule(key) {
+    if (!session) return false;
+    if (session.role === 'super') return true;
+    return session.modules.indexOf(key) !== -1;
+}
+function canAccessView(viewId) {
+    if (!session) return false;
+    if (PROVIDER_VIEWS.indexOf(viewId) !== -1) return session.role === 'super';
+    const key = VIEW_MODULE[viewId];
+    if (!key) return true;               // an untagged screen is not module-gated
+    return canAccessModule(key);
+}
+
+// Nav and section visibility. Role gating still applies on top: a module can be
+// issued to the company and the screen still be an HR-only one.
+function applyAccessVisibility() {
+    document.querySelectorAll('.nav-item').forEach(el => {
+        const onclick = el.getAttribute('onclick') || '';
+        const m = onclick.match(/navigate\('([^']+)'\)/);
+        if (!m) return;
+        el.dataset.view = m[1];
+        el.dataset.module = VIEW_MODULE[m[1]] || '';
+        if (el.style.display === 'none') return;   // already hidden by the role gate
+        if (!canAccessView(m[1])) el.style.display = 'none';
+    });
+    // A section heading with nothing visible under it is noise, so drop it.
+    const nav = document.getElementById('sidebar-nav');
+    if (nav) {
+        const kids = Array.from(nav.children);
+        kids.forEach((el, i) => {
+            if (!el.classList.contains('nav-label')) return;
+            let any = false;
+            for (let j = i + 1; j < kids.length; j++) {
+                if (kids[j].classList.contains('nav-label')) break;
+                if (kids[j].classList.contains('nav-item') && kids[j].style.display !== 'none') { any = true; break; }
+            }
+            if (!any) el.style.display = 'none';
+        });
+    }
+    const sp = document.getElementById('nav-special-powers');
+    if (sp && sp.style.display !== 'none' && !canAccessModule('attendance')) sp.style.display = 'none';
+    renderLicenceBanner();
+}
+
+// The landing screen is the first thing this account can actually open.
+function firstAccessibleView() {
+    if (!session) return 'dashboard';
+    if (session.role === 'super') return 'provider-companies';
+    const order = session.role === 'employee' ? ['ess-profile', 'feed', 'ess-attendance', 'ess-leaves', 'ess-payslips']
+        : session.role === 'manager' ? ['manager-inbox', 'ess-profile', 'feed', 'performance']
+        : ['dashboard', 'directory', 'feed', 'payroll', 'attendance'];
+    const hit = order.find(v => canAccessView(v));
+    if (hit) return hit;
+    const nav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.style.display !== 'none' && el.dataset.view);
+    return nav ? nav.dataset.view : 'dashboard';
+}
+
+function renderLicenceBanner() {
+    const el = document.getElementById('licence-banner');
+    if (!el) return;
+    const c = session && session.role !== 'super' ? companyById(session.companyId) : null;
+    if (!c) { el.style.display = 'none'; return; }
+    const msgs = [];
+    let level = 'warn';
+    if (c.status === 'Suspended') { msgs.push('<strong>' + esc(c.name) + ' is suspended.</strong> Only the core screens are open until the provider reactivates it.'); level = 'danger'; }
+    else if (licenceExpired(c)) { msgs.push('<strong>The licence for ' + esc(c.name) + ' expired on ' + prettyDate(c.validTill) + '.</strong> Renew it to keep the issued modules.'); level = 'danger'; }
+    else if (c.validTill) {
+        const days = Math.round((new Date(c.validTill) - new Date(DEMO_TODAY)) / 86400000);
+        if (days <= 30) msgs.push('The licence for <strong>' + esc(c.name) + '</strong> expires in ' + days + ' day(s), on ' + prettyDate(c.validTill) + '.');
+    }
+    const used = headcountFor(c.id);
+    if (c.seats && used > c.seats) { msgs.push('<strong>' + used + ' employees against ' + c.seats + ' licensed seats.</strong> Raise the seat count for this company.'); level = 'danger'; }
+    if (!msgs.length) { el.style.display = 'none'; return; }
+    el.className = 'access-banner ' + level;
+    el.style.display = 'block';
+    el.innerHTML = msgs.join('<br>');
+}
+// One installation, one live employee dataset per company, so headcount is the
+// roll of whichever tenant is loaded.
+function headcountFor(companyId) {
+    if (companyId !== activeCompanyId) {
+        const c = companyById(companyId);
+        return c && typeof c.lastHeadcount === 'number' ? c.lastHeadcount : 0;
+    }
+    return employees.filter(e => !e.exitDate || e.exitDate >= DEMO_TODAY).length;
+}
+// Called before an employee is created, so a company cannot quietly outgrow
+// what it is paying for.
+function seatCheck() {
+    const c = activeCompany();
+    if (!c || !c.seats) return true;
+    const used = headcountFor(c.id);
+    if (used < c.seats) return true;
+    return confirm('Seat limit reached.\n\n' + c.name + ' is licensed for ' + c.seats +
+        ' seats and already has ' + used + ' on roll.\n\nAdd this employee anyway? The over-count is flagged to the provider.');
+}
+
+// --- Sign in / sign out --------------------------------------------------
+function authError(msg) {
+    const el = document.getElementById('auth-error');
+    if (!el) return;
+    if (!msg) { el.style.display = 'none'; return; }
+    el.innerHTML = msg;
+    el.style.display = 'block';
+}
+function signIn() {
+    const emailEl = document.getElementById('auth-email');
+    const passEl = document.getElementById('auth-pass');
+    const btn = document.getElementById('auth-submit');
+    const email = String(emailEl.value || '').trim().toLowerCase();
+    const pass = String(passEl.value || '');
+    authError('');
+    if (!email || !pass) return authError('Enter your email and password.');
+    const user = userByEmail(email);
+    btn.disabled = true;
+    // The same message either way, so the form does not say which addresses exist.
+    const refuse = (why) => {
+        btn.disabled = false;
+        passEl.value = '';
+        provLog('Sign-in refused', email, why);
+        authError('That email and password do not match an account.');
+    };
+    return verifyPassword(user, pass).then(ok => {
+        if (!user || !ok) return refuse(user ? 'wrong password' : 'no such account');
+        if (user.status !== 'Active') {
+            btn.disabled = false; passEl.value = '';
+            provLog('Sign-in refused', email, 'account ' + user.status.toLowerCase());
+            return authError('This account is ' + user.status.toLowerCase() + '. Ask your HR administrator to reactivate it.');
+        }
+        if (user.role !== 'super') {
+            const c = companyById(user.companyId);
+            if (!c) { btn.disabled = false; return authError('This account is not attached to a company. Ask the provider to fix it.'); }
+            if (c.status === 'Closed') {
+                btn.disabled = false;
+                provLog('Sign-in refused', email, 'company closed');
+                return authError(c.name + ' is closed on this installation.');
+            }
+        }
+        btn.disabled = false;
+        startSession(user);
+    });
+}
+
+function startSession(user) {
+    user.lastSignIn = new Date().toLocaleString('en-GB');
+    session = {
+        email: user.email, name: user.name, role: user.role,
+        companyId: user.role === 'super' ? activeCompanyId : user.companyId,
+        modules: effectiveModules(user), userId: user.id
+    };
+    // Load the tenant this account belongs to before anything renders.
+    const target = user.role === 'super' ? activeCompanyId : user.companyId;
+    if (target && target !== activeCompanyId) switchTenant(target, true);
+    else loadTenantData();
+
+    applySessionRole(user.role);
+    bindIdentityToEmployee(user);
+    renderWhoBar();
+    document.getElementById('auth-gate').style.display = 'none';
+    document.getElementById('auth-pass').value = '';
+    applyRoleVisibility();
+    applyAccessVisibility();
+    if (session.role === 'super') refreshProviderViews();
+    navigateProgrammatic(firstAccessibleView());
+    provLog('Signed in', user.email, user.role + (user.companyId ? ' · ' + companyName(user.companyId) : ' · provider'));
+    audit('Signed in', user.email + ' · ' + user.role, 'Security');
+    saveIdentity();
+    if (user.mustChangePassword) {
+        showToast('This account is still on its issued password. Set your own now.', 'warning');
+        openPasswordChange(true);
+    }
+}
+
+function signOut() {
+    if (session) {
+        saveState(true);
+        provLog('Signed out', session.email, '');
+    }
+    session = null;
+    document.getElementById('auth-gate').style.display = 'flex';
+    document.getElementById('auth-email').value = '';
+    document.getElementById('auth-pass').value = '';
+    authError('');
+    renderAuthNote();
+}
+
+// Role comes from the account now, not a dropdown.
+function applySessionRole(role) {
+    currentRole = role;
+}
+// ESS screens read loggedInUser, so an account that names an employee becomes
+// that employee. An admin or provider account keeps a valid record behind it so
+// nothing downstream breaks, but their own ESS screens are not in their nav.
+function bindIdentityToEmployee(user) {
+    let emp = user.empId ? empById(user.empId) : null;
+    if (!emp && user.role !== 'super') emp = employees.find(e => (e.email || '').toLowerCase() === user.email) || null;
+    if (!emp) emp = employees[0] || null;
+    if (emp) loggedInUser = { id: emp.id, name: emp.name, role: emp.role };
+    else loggedInUser = { id: '', name: user.name, role: user.role };
+    if (currentRole === 'employee' || currentRole === 'manager') initESS();
+}
+
+function renderWhoBar() {
+    if (!session) return;
+    const av = document.getElementById('who-avatar');
+    const nm = document.getElementById('who-name');
+    const mt = document.getElementById('who-meta');
+    const tn = document.getElementById('topbar-tenant');
+    const roleLabel = { super: 'Super Admin', admin: 'HR Admin', manager: 'Manager', employee: 'Employee' }[session.role] || session.role;
+    if (av) {
+        av.innerText = (session.name || session.email).trim().charAt(0).toUpperCase();
+        av.classList.toggle('is-super', session.role === 'super');
+    }
+    if (nm) nm.innerText = session.name || session.email;
+    if (mt) mt.innerText = roleLabel + ' · ' + session.email;
+    if (tn) {
+        if (session.role === 'super') {
+            tn.style.display = 'flex';
+            tn.innerHTML = '🛡️ Provider · viewing ' + esc(companyName(activeCompanyId));
+        } else {
+            const c = companyById(session.companyId);
+            tn.style.display = c ? 'flex' : 'none';
+            if (c) tn.innerHTML = '🏢 ' + esc(c.name) + ' · ' + esc(c.plan) + ' · ' + session.modules.length + ' modules';
+        }
+    }
+    const sub = document.getElementById('topbar-subtitle');
+    if (sub && session.role !== 'super') {
+        const c = companyById(session.companyId);
+        if (c) sub.innerText = c.name + ' • FY 2026-27 • ' + c.plan + ' plan';
+    }
+}
+
+function renderAuthNote() {
+    const el = document.getElementById('auth-note');
+    if (!el) return;
+    const su = userByEmail(SUPER_EMAIL);
+    if (su && su.mustChangePassword) {
+        el.innerHTML = 'First run on this browser. The owner account <strong>' + esc(SUPER_EMAIL) +
+            '</strong> is issued with the password <strong>' + esc(DEFAULT_SUPER_PASSWORD) +
+            '</strong> and will ask you to replace it as soon as you are in.';
+    } else {
+        el.innerHTML = 'Accounts are issued by your HR administrator. No account can see a module ' +
+            'its company has not been issued.';
+    }
+}
+
+// --- Tenant data ---------------------------------------------------------
+// Each company keeps its own copy of every HR collection under its own storage
+// key, so switching tenant does not show one company another's people. The
+// seeded demo data is captured once at boot and is what a brand-new company
+// starts from.
+var SEED_SNAPSHOT = null;
+function captureSeedSnapshot() {
+    if (SEED_SNAPSHOT) return;
+    const snap = {};
+    PERSISTED.forEach(k => { snap[k] = window[k]; });
+    try { SEED_SNAPSHOT = JSON.parse(JSON.stringify(snap)); } catch (err) { SEED_SNAPSHOT = null; }
+}
+function tenantStoreKey(companyId) { return STORE_KEY + ':' + (companyId || activeCompanyId); }
+function restoreSeed() {
+    if (!SEED_SNAPSHOT) return;
+    const fresh = JSON.parse(JSON.stringify(SEED_SNAPSHOT));
+    PERSISTED.forEach(k => { if (fresh[k] !== undefined) window[k] = fresh[k]; });
+}
+function loadTenantData() {
+    let raw = null;
+    try { raw = localStorage.getItem(tenantStoreKey(activeCompanyId)); } catch (err) { raw = null; }
+    if (raw) {
+        try {
+            const snap = JSON.parse(raw);
+            PERSISTED.forEach(k => { if (snap[k] !== undefined) window[k] = snap[k]; });
+        } catch (err) { restoreSeed(); }
+    } else {
+        restoreSeed();
+    }
+    const c = activeCompany();
+    if (c) c.lastHeadcount = employees.filter(e => !e.exitDate || e.exitDate >= DEMO_TODAY).length;
+    refreshEverything();
+}
+// Only the provider switches tenant; everyone else is pinned to their own.
+function switchTenant(companyId, silent) {
+    const c = companyById(companyId);
+    if (!c) return;
+    if (session && session.role !== 'super' && session.companyId !== companyId) return;
+    if (activeCompanyId && activeCompanyId !== companyId) {
+        // Bank the outgoing tenant before loading the next one.
+        try {
+            const snap = {};
+            PERSISTED.forEach(k => { snap[k] = window[k]; });
+            localStorage.setItem(tenantStoreKey(activeCompanyId), JSON.stringify(snap));
+            const prev = companyById(activeCompanyId);
+            if (prev) prev.lastHeadcount = employees.filter(e => !e.exitDate || e.exitDate >= DEMO_TODAY).length;
+        } catch (err) { /* storage unavailable */ }
+    }
+    activeCompanyId = companyId;
+    loadTenantData();
+    if (session) {
+        session.companyId = companyId;
+        const u = userByEmail(session.email);
+        if (u) { bindIdentityToEmployee(u); session.modules = effectiveModules(u); }
+        applyRoleVisibility();
+        applyAccessVisibility();
+        renderWhoBar();
+    }
+    saveIdentity();
+    if (!silent) {
+        provLog('Tenant switched', c.name, 'Provider opened ' + c.name);
+        showToast('Now viewing ' + c.name + '.', 'success');
+        refreshProviderViews();
+    }
+}
+
+// --- Provider console: companies ----------------------------------------
+function refreshProviderViews() {
+    renderProviderCompanies();
+    renderProviderUsers();
+    renderModuleCatalog();
+    renderProvisioningLog();
+}
+function statTile(label, value, tone) {
+    return '<div class="card" style="margin-bottom:0; padding:14px 16px;">' +
+        '<div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.6px;">' + label + '</div>' +
+        '<div style="font-size:1.4rem; font-weight:800; color:' + (tone || 'var(--text-dark)') + ';">' + value + '</div></div>';
+}
+function renderProviderCompanies() {
+    const stats = document.getElementById('provider-stats');
+    if (stats) {
+        const active = companies.filter(c => c.status === 'Active').length;
+        const expiring = companies.filter(c => c.status === 'Active' && c.validTill &&
+            (new Date(c.validTill) - new Date(DEMO_TODAY)) / 86400000 <= 30).length;
+        stats.innerHTML =
+            statTile('Companies', companies.length) +
+            statTile('Active', active, 'var(--success)') +
+            statTile('Suspended / closed', companies.length - active, companies.length - active ? 'var(--danger)' : undefined) +
+            statTile('Licences expiring ≤30d', expiring, expiring ? 'var(--warning)' : undefined) +
+            statTile('User accounts', appUsers.length) +
+            statTile('Modules in catalog', MODULE_CATALOG.length);
+    }
+    const wrap = document.getElementById('provider-company-list');
+    if (!wrap) return;
+    if (!companies.length) { wrap.innerHTML = '<div class="card">No companies yet. Add one to start issuing modules.</div>'; return; }
+    wrap.innerHTML = companies.map(c => {
+        const mods = licensedModules(c.id);
+        const users = appUsers.filter(u => u.companyId === c.id);
+        const head = headcountFor(c.id);
+        const seatPct = c.seats ? Math.min(100, Math.round((head / c.seats) * 100)) : 0;
+        const expired = licenceExpired(c);
+        const tone = c.status !== 'Active' ? 'badge-danger' : expired ? 'badge-warning' : 'badge-success';
+        const statusText = c.status !== 'Active' ? c.status : expired ? 'Licence expired' : 'Active';
+        const isActive = c.id === activeCompanyId;
+        return '<div class="co-card' + (isActive ? ' active-tenant' : '') + '">' +
+            '<div style="display:flex; justify-content:space-between; gap:15px; flex-wrap:wrap; align-items:flex-start;">' +
+                '<div style="min-width:240px;">' +
+                    '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">' +
+                        '<h4 style="font-size:1rem; font-weight:700;">' + esc(c.name) + '</h4>' +
+                        '<span class="badge ' + tone + '">' + esc(statusText) + '</span>' +
+                        '<span class="badge badge-info">' + esc(c.plan) + '</span>' +
+                        (isActive ? '<span class="badge" style="background:var(--super-soft); color:#5b21b6;">Open now</span>' : '') +
+                    '</div>' +
+                    '<div style="font-size:0.76rem; color:var(--text-muted); margin-top:4px;">' +
+                        esc(c.code) + ' · ' + esc(c.industry || 'Industry not set') + ' · ' + esc(c.contact || 'no contact') + '</div>' +
+                    '<div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">Licence ' +
+                        (c.activeFrom ? prettyDate(c.activeFrom) : '—') + ' to ' + (c.validTill ? prettyDate(c.validTill) : '—') + '</div>' +
+                '</div>' +
+                '<div style="display:flex; gap:22px; flex-wrap:wrap; font-size:0.8rem;">' +
+                    '<div><div style="color:var(--text-muted); font-size:0.7rem; text-transform:uppercase;">Modules</div>' +
+                        '<strong style="font-size:1.1rem;">' + mods.length + '</strong> / ' + MODULE_CATALOG.length + '</div>' +
+                    '<div><div style="color:var(--text-muted); font-size:0.7rem; text-transform:uppercase;">Users</div>' +
+                        '<strong style="font-size:1.1rem;">' + users.length + '</strong></div>' +
+                    '<div style="min-width:130px;"><div style="color:var(--text-muted); font-size:0.7rem; text-transform:uppercase;">Seats</div>' +
+                        '<strong style="font-size:1.1rem;">' + head + '</strong> / ' + (c.seats || '∞') +
+                        (c.seats ? '<div class="meter' + (head > c.seats ? ' over' : '') + '"><span style="width:' + seatPct + '%"></span></div>' : '') + '</div>' +
+                '</div>' +
+                '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;">' +
+                    (isActive ? '' : '<button class="btn btn-outline" onclick="switchTenant(\'' + c.id + '\')">Open</button>') +
+                    '<button class="btn btn-primary" onclick="openCompanyEditor(\'' + c.id + '\')">Issue modules</button>' +
+                '</div>' +
+            '</div>' +
+            '<div style="margin-top:12px; display:flex; gap:6px; flex-wrap:wrap;">' +
+                mods.map(k => { const m = moduleByKey(k); return m ? '<span class="badge" style="background:#eff6ff; color:#1d4ed8; text-transform:none;">' + m.icon + ' ' + esc(m.name) + '</span>' : ''; }).join('') +
+            '</div>' +
+        '</div>';
+    }).join('');
+}
+
+// --- Company editor ------------------------------------------------------
+var companyDraft = null;
+function openCompanyEditor(id) {
+    const existing = id ? companyById(id) : null;
+    companyDraft = existing
+        ? JSON.parse(JSON.stringify(existing))
+        : { id: '', name: '', code: '', industry: '', status: 'Active', plan: 'Professional',
+            modules: PLANS['Professional'].slice(), seats: 50, activeFrom: DEMO_TODAY,
+            validTill: (parseInt(DEMO_TODAY.slice(0, 4), 10) + 1) + DEMO_TODAY.slice(4), contact: '', notes: '' };
+    document.getElementById('company-modal-title').innerText = existing ? 'Issue modules — ' + existing.name : 'Add Company';
+    renderCompanyEditor();
+    openModal('modal-company');
+}
+function renderCompanyEditor() {
+    const d = companyDraft;
+    if (!d) return;
+    const issued = expandModules(d.modules);
+    const body = document.getElementById('company-modal-body');
+    const field = (label, html) => '<div><label style="display:block; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:5px;">' + label + '</label>' + html + '</div>';
+    const cats = [];
+    MODULE_CATALOG.forEach(m => { if (cats.indexOf(m.cat) === -1) cats.push(m.cat); });
+    body.innerHTML =
+        '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:14px; margin-bottom:20px;">' +
+            field('Company name', '<input type="text" id="co-name" value="' + esc(d.name) + '" placeholder="Acme Industries Pvt Ltd">') +
+            field('Short code', '<input type="text" id="co-code" value="' + esc(d.code) + '" placeholder="ACME" maxlength="8">') +
+            field('Industry', '<input type="text" id="co-industry" value="' + esc(d.industry) + '" placeholder="Manufacturing">') +
+            field('Admin contact email', '<input type="email" id="co-contact" value="' + esc(d.contact) + '" placeholder="hr@acme.com">') +
+            field('Licensed seats', '<input type="number" min="1" id="co-seats" value="' + (d.seats || '') + '">') +
+            field('Status', '<select id="co-status">' + ['Active', 'Suspended', 'Closed'].map(s =>
+                '<option value="' + s + '"' + (d.status === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>') +
+            field('Licence from', '<input type="date" id="co-from" value="' + esc(d.activeFrom || '') + '">') +
+            field('Licence until', '<input type="date" id="co-till" value="' + esc(d.validTill || '') + '">') +
+        '</div>' +
+        '<div class="card" style="background:var(--bg-main); margin-bottom:18px;">' +
+            '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">' +
+                '<strong style="font-size:0.85rem;">Plan preset</strong>' +
+                Object.keys(PLANS).filter(p => PLANS[p]).map(p =>
+                    '<button class="btn ' + (d.plan === p ? 'btn-primary' : 'btn-outline') + '" style="padding:5px 12px; font-size:0.78rem;" onclick="applyPlanPreset(\'' + p + '\')">' + p + '</button>').join('') +
+                '<span style="font-size:0.76rem; color:var(--text-muted);">Presets are a starting point — tick or untick anything below.</span>' +
+            '</div>' +
+        '</div>' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">' +
+            '<div><strong style="font-size:0.9rem;">Modules issued to this company</strong>' +
+            '<div style="font-size:0.76rem; color:var(--text-muted);">' + issued.length + ' of ' + MODULE_CATALOG.length +
+            ' issued. Foundation modules are always on; a module that needs another brings it along.</div></div>' +
+            '<div style="display:flex; gap:8px;">' +
+                '<button class="btn btn-outline" style="padding:5px 12px; font-size:0.78rem;" onclick="toggleAllModules(true)">Select all</button>' +
+                '<button class="btn btn-outline" style="padding:5px 12px; font-size:0.78rem;" onclick="toggleAllModules(false)">Clear</button>' +
+            '</div>' +
+        '</div>' +
+        cats.map(cat =>
+            '<div class="cat-head">' + esc(cat) + '</div><div class="module-grid">' +
+            MODULE_CATALOG.filter(m => m.cat === cat).map(m => {
+                const on = issued.indexOf(m.key) !== -1;
+                const forced = m.core || (on && d.modules.indexOf(m.key) === -1);
+                const why = m.core ? 'Always issued' : (forced ? 'Required by another issued module' : '');
+                return '<label class="module-tile' + (on ? ' on' : '') + (forced ? ' locked' : '') + '">' +
+                    '<input type="checkbox"' + (on ? ' checked' : '') + (forced ? ' disabled' : '') +
+                        ' onchange="toggleModule(\'' + m.key + '\', this.checked)">' +
+                    '<div><h5>' + m.icon + ' ' + esc(m.name) + '</h5><p>' + esc(m.desc) + '</p>' +
+                    '<div class="mod-meta">' + m.views.length + ' screen(s)' +
+                    (m.needs.length ? ' · needs ' + m.needs.map(moduleName).join(', ') : '') +
+                    (why ? ' · <em>' + why + '</em>' : '') + '</div></div></label>';
+            }).join('') + '</div>').join('') +
+        '<div style="margin-top:20px;">' + field('Notes', '<textarea id="co-notes" rows="2">' + esc(d.notes || '') + '</textarea>') + '</div>' +
+        '<div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">' +
+            '<button class="btn btn-outline" onclick="closeModal(\'modal-company\')">Cancel</button>' +
+            '<button class="btn btn-primary" onclick="saveCompany()">' + (d.id ? 'Save licence' : 'Create company') + '</button>' +
+        '</div>';
+}
+function captureCompanyFields() {
+    const d = companyDraft;
+    if (!d) return;
+    const g = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+    d.name = g('co-name').trim(); d.code = g('co-code').trim().toUpperCase();
+    d.industry = g('co-industry').trim(); d.contact = g('co-contact').trim().toLowerCase();
+    d.seats = parseInt(g('co-seats'), 10) || 0; d.status = g('co-status');
+    d.activeFrom = g('co-from'); d.validTill = g('co-till');
+    const n = document.getElementById('co-notes'); if (n) d.notes = n.value;
+}
+function applyPlanPreset(plan) {
+    captureCompanyFields();
+    companyDraft.plan = plan;
+    if (PLANS[plan]) companyDraft.modules = PLANS[plan].slice();
+    renderCompanyEditor();
+}
+function toggleAllModules(on) {
+    captureCompanyFields();
+    companyDraft.modules = on ? ALL_MODULE_KEYS.slice() : CORE_MODULE_KEYS.slice();
+    companyDraft.plan = on ? 'Enterprise' : 'Custom';
+    renderCompanyEditor();
+}
+function toggleModule(key, on) {
+    captureCompanyFields();
+    const d = companyDraft;
+    if (on) {
+        d.modules = expandModules(d.modules.concat([key]));
+    } else {
+        // Dropping a module drops whatever depended on it, or nothing lines up.
+        const drop = new Set([key]);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            Array.from(drop).forEach(k => dependentsOf(k).forEach(dep => {
+                if (!drop.has(dep)) { drop.add(dep); changed = true; }
+            }));
+        }
+        const removed = Array.from(drop).filter(k => d.modules.indexOf(k) !== -1 && k !== key);
+        d.modules = expandModules(d.modules.filter(k => !drop.has(k)));
+        if (removed.length) showToast('Also removed ' + removed.map(moduleName).join(', ') + ' — they need ' + moduleName(key) + '.', 'warning');
+    }
+    const set = expandModules(d.modules);
+    const named = Object.keys(PLANS).find(p => PLANS[p] && PLANS[p].length === set.length &&
+        expandModules(PLANS[p]).every(k => set.indexOf(k) !== -1));
+    d.plan = named || 'Custom';
+    renderCompanyEditor();
+}
+function saveCompany() {
+    captureCompanyFields();
+    const d = companyDraft;
+    if (!d.name) return showToast('The company needs a name.', 'error');
+    if (!d.code) return showToast('The company needs a short code.', 'error');
+    if (companies.some(c => c.id !== d.id && c.code === d.code)) return showToast('That short code is already in use.', 'error');
+    if (d.validTill && d.activeFrom && d.validTill < d.activeFrom) return showToast('The licence cannot end before it starts.', 'error');
+    d.modules = expandModules(d.modules);
+    const existing = d.id ? companyById(d.id) : null;
+    if (existing) {
+        const before = expandModules(existing.modules);
+        const added = d.modules.filter(k => before.indexOf(k) === -1).map(moduleName);
+        const gone = before.filter(k => d.modules.indexOf(k) === -1).map(moduleName);
+        Object.keys(d).forEach(k => { existing[k] = d[k]; });
+        provLog('Licence updated', existing.name,
+            (added.length ? 'issued ' + added.join(', ') : '') +
+            (added.length && gone.length ? ' · ' : '') +
+            (gone.length ? 'withdrew ' + gone.join(', ') : '') +
+            (!added.length && !gone.length ? 'details updated' : '') +
+            ' · plan ' + existing.plan + ' · ' + existing.status);
+        showToast(existing.name + ' now holds ' + d.modules.length + ' module(s).', 'success');
+    } else {
+        d.id = 'CO-' + String(nextCompanySeq++).padStart(3, '0');
+        d.lastHeadcount = 0;
+        companies.push(d);
+        provLog('Company created', d.name, d.plan + ' plan · ' + d.modules.length + ' modules · ' + (d.seats || '∞') + ' seats');
+        showToast(d.name + ' created with ' + d.modules.length + ' module(s).', 'success');
+    }
+    // Anyone signed in against this company feels the change immediately.
+    if (session && session.companyId === d.id) {
+        const u = userByEmail(session.email);
+        if (u) session.modules = effectiveModules(u);
+        applyRoleVisibility(); applyAccessVisibility(); renderWhoBar();
+    }
+    saveIdentity();
+    closeModal('modal-company');
+    refreshProviderViews();
+}
+function exportCompanyRegister() {
+    const rows = [['BISCS Licence Register', prettyDate(DEMO_TODAY)], []];
+    rows.push(['Company ID', 'Name', 'Code', 'Industry', 'Status', 'Plan', 'Seats', 'On roll',
+        'Licence from', 'Licence until', 'Contact', 'Modules issued', 'Module list']);
+    companies.forEach(c => {
+        const mods = expandModules(c.modules);
+        rows.push([c.id, c.name, c.code, c.industry, c.status, c.plan, c.seats || '', headcountFor(c.id),
+            c.activeFrom, c.validTill, c.contact, mods.length, mods.map(moduleName).join(' | ')]);
+    });
+    downloadRows('Licence_Register_' + DEMO_TODAY + '.csv', rows);
+    provLog('Licence register exported', '', companies.length + ' companies');
+    showToast('Licence register exported.', 'success');
+}
+
+// --- Provider console: users & access -----------------------------------
+const ROLE_LABEL = { super: 'Super Admin', admin: 'HR Admin', manager: 'Manager', employee: 'Employee (ESS)' };
+function renderProviderUsers() {
+    const filt = document.getElementById('user-company-filter');
+    if (filt) {
+        const keep = filt.value;
+        filt.innerHTML = '<option value="">All companies</option>' +
+            '<option value="__provider">Provider (no company)</option>' +
+            companies.map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join('');
+        filt.value = keep;
+    }
+    const tb = document.getElementById('provider-user-table');
+    if (!tb) return;
+    const q = (document.getElementById('user-search') || {}).value || '';
+    const coF = (document.getElementById('user-company-filter') || {}).value || '';
+    const roleF = (document.getElementById('user-role-filter') || {}).value || '';
+    const rows = appUsers.filter(u => {
+        if (q && (u.name + ' ' + u.email).toLowerCase().indexOf(q.toLowerCase()) === -1) return false;
+        if (coF === '__provider' && u.companyId) return false;
+        if (coF && coF !== '__provider' && u.companyId !== coF) return false;
+        if (roleF && u.role !== roleF) return false;
+        return true;
+    });
+    if (!rows.length) { tb.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No accounts match.</td></tr>'; return; }
+    tb.innerHTML = rows.map(u => {
+        const eff = effectiveModules(u);
+        const lic = u.role === 'super' ? ALL_MODULE_KEYS : licensedModules(u.companyId);
+        const accessText = u.role === 'super' ? 'Everything (' + ALL_MODULE_KEYS.length + ')'
+            : u.allModules ? 'All the company holds (' + eff.length + ')'
+            : eff.length + ' of ' + lic.length;
+        const emp = u.empId ? empById(u.empId) : null;
+        return '<tr>' +
+            '<td><strong>' + esc(u.name) + '</strong>' + (emp ? '<br><span style="font-size:0.72rem; color:var(--text-muted);">' + esc(emp.id) + ' · ' + esc(emp.role) + '</span>' : '') +
+                (u.mustChangePassword ? '<br><span class="badge badge-warning" style="text-transform:none;">Default password</span>' : '') + '</td>' +
+            '<td style="font-size:0.82rem;">' + esc(u.email) + '</td>' +
+            '<td>' + (u.role === 'super' ? '<em style="color:var(--super); font-weight:600;">Provider</em>' : esc(companyName(u.companyId))) + '</td>' +
+            '<td><span class="badge ' + (u.role === 'super' ? '' : 'badge-info') + '"' + (u.role === 'super' ? ' style="background:var(--super-soft); color:#5b21b6;"' : '') + '>' + esc(ROLE_LABEL[u.role] || u.role) + '</span></td>' +
+            '<td style="font-size:0.8rem;">' + accessText + '</td>' +
+            '<td><span class="badge ' + (u.status === 'Active' ? 'badge-success' : 'badge-danger') + '">' + esc(u.status) + '</span></td>' +
+            '<td style="font-size:0.76rem; color:var(--text-muted);">' + esc(u.lastSignIn || 'never') + '</td>' +
+            '<td><button class="btn btn-outline" style="padding:4px 8px; font-size:0.72rem;" onclick="openUserEditor(\'' + u.id + '\')">Edit access</button></td>' +
+        '</tr>';
+    }).join('');
+}
+
+var userDraft = null;
+function openUserEditor(id) {
+    const existing = id ? appUsers.find(u => u.id === id) : null;
+    userDraft = existing
+        ? JSON.parse(JSON.stringify(existing))
+        // A new account starts with everything its company holds; the provider
+        // unticks to narrow it, rather than having to tick a list from nothing.
+        : { id: '', email: '', name: '', role: 'employee', companyId: activeCompanyId, empId: '',
+            modules: [], allModules: true, status: 'Active', newPassword: '' };
+    document.getElementById('user-modal-title').innerText = existing ? 'Access — ' + existing.name : 'Add User';
+    renderUserEditor();
+    openModal('modal-user');
+}
+function renderUserEditor() {
+    const d = userDraft;
+    if (!d) return;
+    const isSuper = d.role === 'super';
+    const lic = isSuper ? ALL_MODULE_KEYS.slice() : licensedModules(d.companyId);
+    const granted = isSuper || d.allModules ? lic.slice() : expandModules(d.modules).filter(k => lic.indexOf(k) !== -1);
+    const field = (label, html, hint) => '<div><label style="display:block; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:5px;">' + label + '</label>' + html +
+        (hint ? '<div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">' + hint + '</div>' : '') + '</div>';
+    const empOptions = '<option value="">Not linked to an employee record</option>' +
+        employees.map(e => '<option value="' + e.id + '"' + (d.empId === e.id ? ' selected' : '') + '>' + esc(e.id + ' · ' + e.name + ' — ' + e.role) + '</option>').join('');
+    const cats = [];
+    MODULE_CATALOG.forEach(m => { if (cats.indexOf(m.cat) === -1) cats.push(m.cat); });
+    document.getElementById('user-modal-body').innerHTML =
+        '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px; margin-bottom:18px;">' +
+            field('Email (this is the account)', '<input type="email" id="us-email" value="' + esc(d.email) + '" placeholder="name@company.com"' + (d.id ? ' readonly style="background:var(--bg-main);"' : '') + '>',
+                d.id ? 'The email identifies the account and cannot be changed.' : 'Sign-in is by email. It must be unique across the installation.') +
+            field('Full name', '<input type="text" id="us-name" value="' + esc(d.name) + '" placeholder="Full name">') +
+            field('Role', '<select id="us-role" onchange="onUserRoleChange(this.value)">' +
+                Object.keys(ROLE_LABEL).map(r => '<option value="' + r + '"' + (d.role === r ? ' selected' : '') + '>' + ROLE_LABEL[r] + '</option>').join('') + '</select>',
+                isSuper ? 'A provider account holds every module of every company.' : 'The role decides which controls appear inside a module.') +
+            (isSuper ? '' : field('Company', '<select id="us-company" onchange="onUserCompanyChange(this.value)">' +
+                companies.map(c => '<option value="' + c.id + '"' + (d.companyId === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select>')) +
+            (isSuper ? '' : field('Employee record', '<select id="us-emp">' + empOptions + '</select>',
+                'Links the account to a person so the self-service screens show their own data.')) +
+            field('Status', '<select id="us-status">' + ['Active', 'Suspended'].map(s =>
+                '<option value="' + s + '"' + (d.status === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>') +
+            field(d.id ? 'Reset password (leave blank to keep)' : 'Password',
+                '<input type="text" id="us-password" value="' + esc(d.newPassword || '') + '" placeholder="At least 8 characters, a letter and a number">',
+                d.id ? 'Setting a value here replaces the password immediately.' : 'Hand this to the user; they can change it once signed in.') +
+        '</div>' +
+        (isSuper
+            ? '<div class="card" style="background:var(--super-soft); border-color:#ddd6fe;"><strong style="color:#5b21b6;">Provider account.</strong> ' +
+              'This account holds every module of every company and is the only one that can issue licences. Module grants below do not apply.</div>'
+            : '<div class="card" style="background:var(--bg-main); margin-bottom:16px;">' +
+                '<label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer; text-transform:none; font-weight:400; color:var(--text-dark);">' +
+                    '<input type="checkbox" style="width:16px; height:16px; margin-top:2px;"' + (d.allModules ? ' checked' : '') + ' onchange="toggleUserAllModules(this.checked)">' +
+                    '<div><strong style="font-size:0.86rem; text-transform:none;">Everything this company is licensed for</strong>' +
+                    '<div style="font-size:0.75rem; color:var(--text-muted); text-transform:none; font-weight:400;">Tracks the company licence — a module issued later reaches this account automatically. ' +
+                    'Untick to hand-pick.</div></div></label></div>' +
+              '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">' +
+                '<div><strong style="font-size:0.9rem;">Modules this account may open</strong>' +
+                '<div style="font-size:0.76rem; color:var(--text-muted);">' + granted.length + ' of ' + lic.length +
+                ' the company holds. Greyed tiles are not licensed to ' + esc(companyName(d.companyId)) + ', so they cannot be granted.</div></div></div>' +
+              cats.map(cat => {
+                  const mods = MODULE_CATALOG.filter(m => m.cat === cat);
+                  if (!mods.length) return '';
+                  return '<div class="cat-head">' + esc(cat) + '</div><div class="module-grid">' +
+                      mods.map(m => {
+                          const licensed = lic.indexOf(m.key) !== -1;
+                          const on = granted.indexOf(m.key) !== -1;
+                          const locked = !licensed || d.allModules || m.core;
+                          const note = !licensed ? 'Not licensed to this company'
+                              : d.allModules ? 'Follows the company licence'
+                              : m.core ? 'Always granted' : '';
+                          return '<label class="module-tile' + (on ? ' on' : '') + (locked ? ' locked' : '') + '">' +
+                              '<input type="checkbox"' + (on ? ' checked' : '') + (locked ? ' disabled' : '') +
+                                  ' onchange="toggleUserModule(\'' + m.key + '\', this.checked)">' +
+                              '<div><h5>' + m.icon + ' ' + esc(m.name) + '</h5><p>' + esc(m.desc) + '</p>' +
+                              (note ? '<div class="mod-meta"><em>' + note + '</em></div>' : '') + '</div></label>';
+                      }).join('') + '</div>';
+              }).join('')) +
+        '<div style="display:flex; justify-content:space-between; gap:10px; margin-top:22px; flex-wrap:wrap;">' +
+            '<div>' + (d.id && d.email !== SUPER_EMAIL ? '<button class="btn btn-danger" onclick="deleteUser()">Delete account</button>' : '') + '</div>' +
+            '<div style="display:flex; gap:10px;">' +
+                '<button class="btn btn-outline" onclick="closeModal(\'modal-user\')">Cancel</button>' +
+                '<button class="btn btn-primary" onclick="saveUser()">' + (d.id ? 'Save access' : 'Create account') + '</button>' +
+            '</div>' +
+        '</div>';
+}
+function captureUserFields() {
+    const d = userDraft;
+    if (!d) return;
+    const g = id => { const el = document.getElementById(id); return el ? el.value : undefined; };
+    const email = g('us-email'); if (email !== undefined) d.email = email.trim().toLowerCase();
+    const name = g('us-name'); if (name !== undefined) d.name = name.trim();
+    const role = g('us-role'); if (role !== undefined) d.role = role;
+    const co = g('us-company'); if (co !== undefined) d.companyId = co;
+    const emp = g('us-emp'); if (emp !== undefined) d.empId = emp;
+    const st = g('us-status'); if (st !== undefined) d.status = st;
+    const pw = g('us-password'); if (pw !== undefined) d.newPassword = pw;
+}
+function onUserRoleChange(role) { captureUserFields(); userDraft.role = role; if (role === 'super') userDraft.companyId = ''; renderUserEditor(); }
+function onUserCompanyChange(id) { captureUserFields(); userDraft.companyId = id; userDraft.empId = ''; renderUserEditor(); }
+function toggleUserAllModules(on) { captureUserFields(); userDraft.allModules = on; renderUserEditor(); }
+function toggleUserModule(key, on) {
+    captureUserFields();
+    const d = userDraft;
+    if (on) d.modules = expandModules(d.modules.concat([key]));
+    else {
+        const drop = new Set([key]);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            Array.from(drop).forEach(k => dependentsOf(k).forEach(dep => { if (!drop.has(dep)) { drop.add(dep); changed = true; } }));
+        }
+        d.modules = expandModules(d.modules.filter(k => !drop.has(k)));
+    }
+    renderUserEditor();
+}
+function saveUser() {
+    captureUserFields();
+    const d = userDraft;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email)) return showToast('That is not a valid email address.', 'error');
+    if (!d.name) return showToast('The account needs a name.', 'error');
+    if (d.role !== 'super' && !d.companyId) return showToast('Pick the company this account belongs to.', 'error');
+    const clash = appUsers.find(u => u.email === d.email && u.id !== d.id);
+    if (clash) return showToast('An account already exists for ' + d.email + '.', 'error');
+    if (d.newPassword) {
+        const complaint = passwordComplaint(d.newPassword);
+        if (complaint) return showToast(complaint, 'error');
+    }
+    const existing = d.id ? appUsers.find(u => u.id === d.id) : null;
+    if (!existing && !d.newPassword) return showToast('Set a password for the new account.', 'error');
+    if (existing && existing.email === SUPER_EMAIL && (d.role !== 'super' || d.status !== 'Active'))
+        return showToast('The owner account has to stay an active provider account.', 'error');
+
+    const finish = (user, isNew) => {
+        user.modules = expandModules(user.modules || []);
+        saveIdentity();
+        provLog(isNew ? 'Account created' : 'Access updated', user.email,
+            ROLE_LABEL[user.role] + ' · ' + (user.role === 'super' ? 'provider' : companyName(user.companyId)) +
+            ' · ' + (user.role === 'super' ? 'all modules' : user.allModules ? 'all licensed modules' : effectiveModules(user).length + ' modules') +
+            ' · ' + user.status);
+        // If this is the signed-in account, the change lands at once.
+        if (session && session.email === user.email) {
+            session.role = user.role; session.name = user.name;
+            session.modules = effectiveModules(user);
+            applySessionRole(user.role);
+            bindIdentityToEmployee(user);
+            applyRoleVisibility(); applyAccessVisibility(); renderWhoBar();
+        }
+        closeModal('modal-user');
+        refreshProviderViews();
+        showToast(isNew ? 'Account created for ' + user.email + '.' : 'Access updated for ' + user.email + '.', 'success');
+    };
+
+    if (existing) {
+        ['email', 'name', 'role', 'companyId', 'empId', 'modules', 'allModules', 'status'].forEach(k => { existing[k] = d[k]; });
+        if (d.newPassword) {
+            return setUserPassword(existing, d.newPassword).then(() => {
+                provLog('Password reset', existing.email, 'set by provider');
+                finish(existing, false);
+            });
+        }
+        return finish(existing, false);
+    }
+    const user = {
+        id: 'USR-' + String(nextUserSeq++).padStart(3, '0'),
+        email: d.email, name: d.name, role: d.role, companyId: d.role === 'super' ? '' : d.companyId,
+        empId: d.empId, modules: d.modules, allModules: d.allModules, status: d.status,
+        createdOn: DEMO_TODAY, lastSignIn: '', salt: '', hash: '', algo: ''
+    };
+    appUsers.push(user);
+    return setUserPassword(user, d.newPassword).then(() => { user.mustChangePassword = true; finish(user, true); });
+}
+function deleteUser() {
+    const d = userDraft;
+    const user = d && d.id ? appUsers.find(u => u.id === d.id) : null;
+    if (!user) return;
+    if (user.email === SUPER_EMAIL) return showToast('The owner account cannot be deleted.', 'error');
+    if (session && session.email === user.email) return showToast('You cannot delete the account you are signed in with.', 'error');
+    if (!confirm('Delete the account for ' + user.email + '?\n\nThey lose access immediately. Employee records and history are untouched.')) return;
+    appUsers = appUsers.filter(u => u.id !== user.id);
+    provLog('Account deleted', user.email, ROLE_LABEL[user.role] + ' · ' + (user.companyId ? companyName(user.companyId) : 'provider'));
+    saveIdentity();
+    closeModal('modal-user');
+    refreshProviderViews();
+    showToast('Account for ' + user.email + ' deleted.', 'success');
+}
+function exportUserRegister() {
+    const rows = [['BISCS Access Register', prettyDate(DEMO_TODAY)], []];
+    rows.push(['User ID', 'Name', 'Email', 'Company', 'Role', 'Status', 'Employee record',
+        'Access mode', 'Modules granted', 'Module list', 'Created', 'Last sign-in']);
+    appUsers.forEach(u => {
+        const eff = effectiveModules(u);
+        rows.push([u.id, u.name, u.email, u.role === 'super' ? 'Provider' : companyName(u.companyId),
+            ROLE_LABEL[u.role] || u.role, u.status, u.empId || '',
+            u.role === 'super' ? 'All modules' : u.allModules ? 'Follows company licence' : 'Hand-picked',
+            eff.length, eff.map(moduleName).join(' | '), u.createdOn || '', u.lastSignIn || 'never']);
+    });
+    downloadRows('Access_Register_' + DEMO_TODAY + '.csv', rows);
+    provLog('Access register exported', '', appUsers.length + ' accounts');
+    showToast('Access register exported.', 'success');
+}
+
+// --- Provider console: catalog & log ------------------------------------
+function renderModuleCatalog() {
+    const stats = document.getElementById('catalog-stats');
+    if (stats) {
+        const cats = [];
+        MODULE_CATALOG.forEach(m => { if (cats.indexOf(m.cat) === -1) cats.push(m.cat); });
+        const screens = MODULE_CATALOG.reduce((a, m) => a + m.views.length, 0);
+        stats.innerHTML = statTile('Modules', MODULE_CATALOG.length) + statTile('Categories', cats.length) +
+            statTile('Screens covered', screens) + statTile('Always issued', CORE_MODULE_KEYS.length) +
+            statTile('Companies', companies.length) + statTile('Accounts', appUsers.length);
+    }
+    const wrap = document.getElementById('catalog-list');
+    if (!wrap) return;
+    const cats = [];
+    MODULE_CATALOG.forEach(m => { if (cats.indexOf(m.cat) === -1) cats.push(m.cat); });
+    wrap.innerHTML = cats.map(cat =>
+        '<div class="cat-head">' + esc(cat) + '</div>' +
+        '<div class="card" style="padding:0; overflow:hidden;"><div style="overflow-x:auto;"><table><thead><tr>' +
+        '<th>Module</th><th>What it opens</th><th>Screens</th><th>Requires</th><th>Companies holding it</th></tr></thead><tbody>' +
+        MODULE_CATALOG.filter(m => m.cat === cat).map(m => {
+            const holders = companies.filter(c => licensedModules(c.id).indexOf(m.key) !== -1);
+            return '<tr>' +
+                '<td><strong>' + m.icon + ' ' + esc(m.name) + '</strong>' + (m.core ? '<br><span class="badge badge-info">Always issued</span>' : '') + '</td>' +
+                '<td style="font-size:0.8rem; max-width:420px;">' + esc(m.desc) + '</td>' +
+                '<td style="font-size:0.75rem; color:var(--text-muted);">' + m.views.map(v => VIEW_TITLES[v] || v).join('<br>') + '</td>' +
+                '<td style="font-size:0.8rem;">' + (m.needs.length ? m.needs.map(moduleName).join(', ') : '—') + '</td>' +
+                '<td style="font-size:0.8rem;">' + holders.length + ' of ' + companies.length +
+                    (holders.length ? '<br><span style="font-size:0.72rem; color:var(--text-muted);">' + holders.map(c => esc(c.code)).join(', ') + '</span>' : '') + '</td>' +
+            '</tr>';
+        }).join('') + '</tbody></table></div></div>').join('');
+}
+function renderProvisioningLog() {
+    const tb = document.getElementById('provisioning-log-table');
+    if (!tb) return;
+    if (!provisioningLog.length) { tb.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Nothing logged yet.</td></tr>'; return; }
+    tb.innerHTML = provisioningLog.slice(0, 200).map(l =>
+        '<tr><td style="font-size:0.76rem; white-space:nowrap;">' + esc(l.ts) + '</td>' +
+        '<td style="font-size:0.8rem;">' + esc(l.by) + '</td>' +
+        '<td><strong style="font-size:0.82rem;">' + esc(l.event) + '</strong></td>' +
+        '<td style="font-size:0.8rem;">' + esc(l.subject) + '</td>' +
+        '<td style="font-size:0.8rem; color:var(--text-muted);">' + esc(l.detail) + '</td></tr>').join('');
+}
+function exportProvisioningLog() {
+    const rows = [['BISCS Provisioning Log', prettyDate(DEMO_TODAY)], [], ['When', 'By', 'Event', 'Subject', 'Detail']];
+    provisioningLog.forEach(l => rows.push([l.ts, l.by, l.event, l.subject, l.detail]));
+    downloadRows('Provisioning_Log_' + DEMO_TODAY + '.csv', rows);
+    showToast('Provisioning log exported.', 'success');
+}
+
+// --- Changing your own password -----------------------------------------
+function openPasswordChange(forced) {
+    const body = document.getElementById('password-modal-body');
+    if (!body || !session) return;
+    body.innerHTML =
+        (forced ? '<div class="card" style="background:#fffbeb; border-color:#fde68a; margin-bottom:16px; font-size:0.84rem;">' +
+            'This account is still on the password it was issued with. Set your own before going further.</div>' : '') +
+        '<label style="display:block; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:5px;">Current password</label>' +
+        '<input type="password" id="pw-current" style="margin-bottom:14px;">' +
+        '<label style="display:block; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:5px;">New password</label>' +
+        '<input type="password" id="pw-new" style="margin-bottom:14px;" placeholder="At least 8 characters, a letter and a number">' +
+        '<label style="display:block; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:5px;">Confirm new password</label>' +
+        '<input type="password" id="pw-confirm" style="margin-bottom:18px;">' +
+        '<div style="display:flex; justify-content:flex-end; gap:10px;">' +
+            (forced ? '' : '<button class="btn btn-outline" onclick="closeModal(\'modal-password\')">Cancel</button>') +
+            '<button class="btn btn-primary" onclick="submitPasswordChange()">Change password</button></div>';
+    openModal('modal-password');
+}
+function submitPasswordChange() {
+    const user = session ? userByEmail(session.email) : null;
+    if (!user) return;
+    const cur = document.getElementById('pw-current').value;
+    const next = document.getElementById('pw-new').value;
+    const conf = document.getElementById('pw-confirm').value;
+    if (next !== conf) return showToast('The two new passwords do not match.', 'error');
+    const complaint = passwordComplaint(next);
+    if (complaint) return showToast(complaint, 'error');
+    return verifyPassword(user, cur).then(ok => {
+        if (!ok) return showToast('That is not your current password.', 'error');
+        return setUserPassword(user, next).then(() => {
+            saveIdentity();
+            provLog('Password changed', user.email, 'by the account holder');
+            closeModal('modal-password');
+            refreshProviderViews();
+            showToast('Password changed.', 'success');
+        });
+    });
+}
+
+
+// A screen the account is not entitled to is not opened, whether the request
+// came from a click or from code elsewhere in the module.
+function accessGuard(viewId) {
+    if (!session) return false;
+    const label = VIEW_TITLES[viewId] || viewId;
+    if (PROVIDER_VIEWS.indexOf(viewId) !== -1 && session.role !== 'super') {
+        showToast('The provider console is only open to a super admin account.', 'error');
+        return false;
+    }
+    if (!canAccessView(viewId)) {
+        const key = VIEW_MODULE[viewId];
+        showToast('"' + label + '" is part of ' + (key ? moduleName(key) : 'a module') +
+            ', which your account is not granted.', 'warning');
+        return false;
+    }
+    // Entitlement says the company holds the module; the role still decides
+    // which of its screens this person may open.
+    if (!roleMayOpen(viewId)) {
+        showToast('"' + label + '" is not open to your role.', 'warning');
+        return false;
+    }
+    return true;
+}
+
 // INIT
+// Nothing renders until somebody signs in. The seeded demo data is captured
+// first so a newly created company has something to start from, then the
+// identity registry is read and the sign-in gate is shown.
 window.onload = () => {
-    // Restore a saved session if one exists, otherwise render the seeded demo.
-    const restored = loadState(true);
-    if (!restored) {
+    seedDemoDataIntoDom();
+    buildViewRoles();
+    captureSeedSnapshot();
+    loadIdentity();
+    ensureSuperAdmin().then(() => {
+        renderAuthNote();
+        renderProviderUsers();
+        const gate = document.getElementById('auth-gate');
+        if (gate) gate.style.display = 'flex';
+        const em = document.getElementById('auth-email');
+        if (em) em.focus();
+        audit('Application started', companies.length + ' companies · ' + appUsers.length + ' accounts', 'System');
+    });
+};
+
+// The original boot render, kept intact and now run once before sign-in so
+// every collection is built and can be snapshotted as the seed.
+function seedDemoDataIntoDom() {
+    {
         const headcountEl = document.getElementById('dash-headcount');
         if (headcountEl) headcountEl.innerText = employees.length;
         renderCTCConfig();
@@ -14977,8 +16443,7 @@ window.onload = () => {
         refreshWorkflowViews();
         initPayrollEngine();
     }
-    audit('Session started', 'Demo data loaded' + (restored ? ' from saved state' : ''), 'System');
-};
+}
 
 </script>
 </body>
