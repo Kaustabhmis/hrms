@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAX ERP</title>
+    <style>
+        :root {
+            --primary: #2563eb; --accent: #0ea5e9;
+            --bg-main: #f8fafc; --bg-card: #ffffff; --border: #e2e8f0;
+            --text-dark: #0f172a; --text-muted: #64748b;
+            --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-sans); }
+        body { background: var(--bg-main); color: var(--text-dark); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 30px; }
+        .shell { max-width: 640px; width: 100%; }
+        .brand { display: flex; align-items: center; gap: 12px; font-size: 1.5rem; font-weight: 800; margin-bottom: 8px; }
+        .brand-mark { width: 28px; height: 28px; background: var(--primary); border-radius: 6px; }
+        .brand span { color: var(--accent); }
+        .lede { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 25px; }
+        .module { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; display: flex; justify-content: space-between; align-items: center; gap: 20px; text-decoration: none; color: inherit; transition: 0.2s; }
+        .module:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+        .module h2 { font-size: 1.05rem; font-weight: 600; margin-bottom: 4px; }
+        .module p { font-size: 0.85rem; color: var(--text-muted); }
+        .arrow { color: var(--primary); font-weight: 700; font-size: 1.2rem; }
+        .note { margin-top: 25px; font-size: 0.8rem; color: var(--text-muted); line-height: 1.6; border-left: 3px solid var(--border); padding-left: 12px; }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <div class="brand"><div class="brand-mark"></div>MAX <span>ERP</span></div>
+        <p class="lede">Module launcher.</p>
+
+        <a class="module" href="modules/hrms/index.html">
+            <div>
+                <h2>👥 HRMS &amp; Payroll</h2>
+                <p>Core HR, attendance, payroll engine, talent, and statutory compliance.</p>
+            </div>
+            <div class="arrow">→</div>
+        </a>
+
+        <p class="note">
+            Placeholder shell. It exists so the HRMS module's <strong>← Back to MAX ERP</strong>
+            link resolves when the module is opened standalone. Replace this file with the real
+            MAX ERP entry point.
+        </p>
+    </div>
+</body>
+</html>
