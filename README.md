@@ -9,6 +9,8 @@ browser and resets on reload.
 ```
 index.html              MAX ERP launcher shell (placeholder — see note below)
 modules/hrms/index.html The HRMS & Payroll module
+tools/essl-sync/        Pulls punches out of the eSSL MySQL into a CSV the
+                        module's eSSL importer reads
 ```
 
 The module lives at `modules/hrms/` because its sidebar carries a
@@ -565,6 +567,108 @@ employee sit at the end of every row.
 Every manual entry is listed underneath with who set it, what it was before,
 and why, and the whole register — grid, punch log and manual entries — exports
 to CSV.
+
+## eSSL biometric import
+
+Punches from eSSL devices (and the eTimeTrackLite software behind them) come in
+under **Time & Attendance → eSSL Device Import**, which is its own licensable
+module (`essl`).
+
+An imported punch is written with the same `pushPunch` call a web clock-in
+makes, and the day is rebuilt with the same `syncDailyFromPunches`. So late
+marks, half days, overtime and the payroll muster all recompute from imported
+punches exactly as they do from live ones — there is no separate "imported
+attendance" that could disagree with the payslip.
+
+### Three ways in
+
+| Route | What it is |
+|---|---|
+| **Device log file** | The raw tab-separated `.dat` / `.txt` pulled off the device — user ID, timestamp, state. No header row. |
+| **eTimeTrackLite export** | Reports → Device Logs / Attendance Register, saved as Excel or CSV. |
+| **MySQL sync** | Read the eSSL database directly on a schedule — see `tools/essl-sync` below. |
+
+All three land in the same importer, and nothing is written until you have seen
+the preview.
+
+### Nothing is hard-coded to one layout
+
+eTimeTrackLite has shipped several schemas and every site exports something
+slightly different, so the importer detects rather than assumes:
+
+- **Columns** are matched against a table of aliases (`UserId`, `EmployeeCode`,
+  `AC-No`, `Badge Number`, `LogDate`, `AttDateTime`, `Direction`, `AttDirection`
+  and others), and **every one is remappable** from a dropdown that shows the
+  first value in each column. A file with no header row is read positionally as
+  a raw device log.
+- **The date format is decided once, from the whole file, not per row.**
+  `01/02/2026` is either 1 February or 2 January and no single row can say
+  which — so every stamp in the file is inspected, and a day past 12 anywhere
+  settles it. When nothing settles it, the import says so plainly and reads it
+  day-first (which is what eSSL writes in India) rather than guessing quietly.
+  A file containing rows that only fit day-first *and* rows that only fit
+  month-first is flagged as mixed. The format can always be set by hand.
+- **Direction** comes from the device's own state code where there is one
+  (ZKTeco numbering: 0 check-in, 1 check-out, 2 break-out, 3 break-in, 4 OT-in,
+  5 OT-out) as well as the usual text forms. Where the device records no
+  direction, the person's punches for that day are sorted and alternated from
+  the first — which is what an in/out reader actually produces.
+
+### Device ID → employee
+
+A device knows people by an enrolment number, not by name. **Auto-match by
+code** takes the digits out of each employee code (EMP-042 → 42), which is how
+most eSSL enrolments are numbered; anything that clashes is left for a human.
+Unmapped IDs found during an import are listed with a punch count and a button
+to map each one, and their punches are **held back rather than guessed at**.
+
+### What the preview tells you before you commit
+
+Punches to be written, employee-days affected, punches already in the log,
+unmapped device IDs, rows that cannot be read and why, and punches falling
+outside someone's service dates — a punch dated before joining or after leaving
+is skipped, not imported.
+
+**Re-importing is safe.** eSSL exports overlap constantly, so every punch is
+checked against the log on employee, date, time and direction, and one already
+there is skipped. Re-importing the same file writes nothing.
+
+Committing an import clears any *recorded absence* on a day the punches
+disprove, and says how many. Every import is a numbered batch in the history
+table, and **Undo** removes exactly the punches that batch wrote and rebuilds
+those days from whatever is left.
+
+### `tools/essl-sync` — reading the eSSL MySQL directly
+
+eTimeTrackLite keeps its data in MySQL, so the import can be automated. The
+script pulls new rows and writes the CSV the importer reads:
+
+```
+cd tools/essl-sync
+cp .env.example .env      # then fill in host, user, password, database
+npm install
+node sync.js --probe      # list the tables and columns, write nothing
+node sync.js              # pull new punches since the last run
+node sync.js --full       # ignore the watermark and pull everything
+```
+
+**Run `--probe` first.** It prints the tables in the database and the columns in
+the punch table, and names any configured column that is not actually there.
+`DeviceLogs` with `DeviceLogId` / `UserId` / `LogDate` / `Direction` / `DeviceId`
+is the common shape and the default, but it is not a promise — every table and
+column name is an environment variable precisely because yours may differ.
+
+The script keeps a **watermark** (the highest log id already pulled) in
+`.watermark`, so each punch is fetched exactly once however often it runs — put
+it on a cron job or Task Scheduler and it becomes an incremental feed. It writes
+timestamps year-first so the importer never has to guess the date format.
+
+Give it a **read-only MySQL user**; it only ever issues `SELECT`.
+
+It is deliberately a file feed rather than a push: until the HRMS has a backend
+there is nothing to POST to, and a CSV on disk is something you can open and
+check before it reaches payroll. When the backend exists, swap the one
+`writeCsv` call for an HTTP call and nothing else in the script changes.
 
 ## Attendance requests and the special powers console
 

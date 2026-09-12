@@ -1,0 +1,16 @@
+{
+  "name": "essl-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pull attendance punches out of the eSSL / eTimeTrackLite MySQL database into a CSV the BISCS HRMS eSSL importer reads.",
+  "main": "sync.js",
+  "scripts": {
+    "probe": "node sync.js --probe",
+    "sync": "node sync.js",
+    "full": "node sync.js --full"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mysql2": "^3.11.0"
+  }
+}

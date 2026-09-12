@@ -532,6 +532,7 @@
             <div class="nav-item" data-role="admin" onclick="navigate('recruitment')">🎯 Recruitment (ATS)</div>
             <div class="nav-item" data-role="admin" onclick="navigate('attendance')">⏱️ Universal Gateway</div>
             <div class="nav-item" data-role="admin" onclick="navigate('attendance-register')">🗓️ Attendance Register</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('essl')">🖥️ eSSL Device Import</div>
             <div class="nav-item" data-role="admin" onclick="navigate('att-requests')">📝 Attendance Requests <span class="badge badge-warning" style="margin-left:auto; display:none;" id="attreq-nav-badge">0</span></div>
             <div class="nav-item" data-role="admin" onclick="navigate('timesheets')">⌛ Project Timesheets</div>
             <div class="nav-item" data-role="admin" onclick="navigate('shifts')">📅 Shift Scheduling</div>
@@ -1338,6 +1339,108 @@
                             <thead><tr><th>Ref</th><th>Employee</th><th>Date</th><th>Set to</th><th>Reason</th><th>By</th></tr></thead>
                             <tbody id="manual-att-log"></tbody>
                         </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- eSSL / BIOMETRIC DEVICE IMPORT -->
+            <section id="view-essl" class="view-section">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:15px; flex-wrap:wrap;">
+                    <div>
+                        <h2>eSSL Biometric Import</h2>
+                        <p style="font-size: 0.9rem; color: var(--text-muted);">Bring punches off eSSL / eTimeTrackLite devices into the punch log. Imported punches go through the same path as a web clock-in, so late marks, half days, overtime and the payroll muster all recompute from them.</p>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn btn-outline" onclick="exportEsslMapping()">⬇️ Mapping (CSV)</button>
+                        <button class="btn btn-outline" onclick="downloadEsslSqlQuery()">⬇️ MySQL Query</button>
+                    </div>
+                </div>
+
+                <div class="stat-strip" id="essl-stats"></div>
+
+                <!-- 1. Get the data off the device -->
+                <div class="card">
+                    <h3 style="font-size:1rem; margin-bottom:6px;">1 · Getting the punches out of eSSL</h3>
+                    <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:14px;">
+                        Three ways in, all landing in the same importer below. eTimeTrackLite keeps its data in MySQL,
+                        so the third is the one to automate once there is a server to run it on.</p>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px;">
+                        <div style="border:1px solid var(--border); border-radius:10px; padding:14px;">
+                            <strong style="font-size:0.86rem;">📄 Device log file</strong>
+                            <p style="font-size:0.77rem; color:var(--text-muted); margin-top:5px; line-height:1.5;">
+                                Download the log off the device or from the eSSL software — a tab-separated
+                                <code>.dat</code> / <code>.txt</code> with user ID, timestamp and state. No header row needed.</p>
+                        </div>
+                        <div style="border:1px solid var(--border); border-radius:10px; padding:14px;">
+                            <strong style="font-size:0.86rem;">📊 eTimeTrackLite export</strong>
+                            <p style="font-size:0.77rem; color:var(--text-muted); margin-top:5px; line-height:1.5;">
+                                Reports → Device Logs / Attendance Register, exported to Excel or CSV. Column names vary
+                                by version, so every column is remappable below.</p>
+                        </div>
+                        <div style="border:1px solid var(--border); border-radius:10px; padding:14px;">
+                            <strong style="font-size:0.86rem;">🗄️ MySQL sync</strong>
+                            <p style="font-size:0.77rem; color:var(--text-muted); margin-top:5px; line-height:1.5;">
+                                Read the eSSL <code>DeviceLogs</code> table directly on a schedule. Needs a server —
+                                <strong>MySQL Query</strong> above gives you the statement, and <code>tools/essl-sync</code>
+                                in the repo is a ready script.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Map device IDs to employees -->
+                <div class="card">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                        <div>
+                            <h3 style="font-size:1rem;">2 · Device ID → employee</h3>
+                            <p style="font-size:0.84rem; color:var(--text-muted);">An eSSL device knows people by their enrolment number. Map each to an employee once and every future import resolves on its own.</p>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button class="btn btn-outline" onclick="autoMatchEsslIds()">✨ Auto-match by code</button>
+                            <button class="btn btn-primary" onclick="addEsslMapRow()">+ Add mapping</button>
+                        </div>
+                    </div>
+                    <div style="overflow-x:auto;">
+                    <table>
+                        <thead><tr><th>eSSL User ID</th><th>Employee</th><th>Department</th><th>Punches imported</th><th></th></tr></thead>
+                        <tbody id="essl-map-table"></tbody>
+                    </table>
+                    </div>
+                </div>
+
+                <!-- 3. Import -->
+                <div class="card">
+                    <h3 style="font-size:1rem; margin-bottom:6px;">3 · Import a file</h3>
+                    <div class="drop-zone" id="essl-drop"
+                         onclick="document.getElementById('essl-file').click()"
+                         ondragover="esslDragOver(event)" ondragleave="esslDragLeave()" ondrop="esslDrop(event)">
+                        <div class="drop-icon">🖥️</div>
+                        <div class="drop-title">Drop an eSSL log or export here, or click to browse</div>
+                        <div class="drop-sub">Accepts <strong>.dat</strong>, <strong>.txt</strong>, <strong>.csv</strong>, <strong>.xlsx</strong> and <strong>.xlsm</strong></div>
+                    </div>
+                    <input type="file" id="essl-file" accept=".dat,.txt,.csv,.xlsx,.xlsm,text/plain,text/csv" style="display:none" onchange="onEsslFile(this)">
+                    <div id="essl-file-status" style="font-size:0.85rem; margin-top:12px; min-height:20px;"></div>
+                    <details style="margin-top:12px;">
+                        <summary style="cursor:pointer; font-size:0.84rem; font-weight:600; color:var(--secondary);">Or paste rows</summary>
+                        <textarea id="essl-text" rows="5" placeholder="1&#9;2026-04-16 09:12:33&#9;0&#10;2&#9;2026-04-16 09:31:02&#9;0" style="margin-top:10px; font-family:monospace; font-size:0.8rem;"></textarea>
+                        <button class="btn btn-outline" style="margin-top:8px;" onclick="ingestEsslPasted()">Read pasted rows</button>
+                    </details>
+                </div>
+
+                <div id="essl-preview"></div>
+
+                <!-- 4. History -->
+                <div class="card">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                        <div>
+                            <h3 style="font-size:1rem;">Import history</h3>
+                            <p style="font-size:0.84rem; color:var(--text-muted);">Every batch, with what it wrote. An import can be undone, which removes exactly the punches it added and rebuilds those days.</p>
+                        </div>
+                    </div>
+                    <div style="overflow-x:auto;">
+                    <table>
+                        <thead><tr><th>Batch</th><th>Imported on</th><th>Source</th><th>Period covered</th><th>Punches</th><th>Skipped</th><th>By</th><th></th></tr></thead>
+                        <tbody id="essl-batch-table"></tbody>
+                    </table>
                     </div>
                 </div>
             </section>
@@ -6634,7 +6737,7 @@ const VIEW_TITLES = {
         'feed': 'Notice Board', 'notices': 'Notice Management', 'orgchart': 'Organization Chart',
         'dashboard': 'Command Center', 'directory': 'Organization Directory', 'documents': 'Document Center & e-Sign', 'recruitment': 'Recruitment & ATS',
         'attendance': 'Universal Edge Gateway', 'attendance-register': 'Attendance Register',
-        'att-requests': 'Attendance Requests',
+        'att-requests': 'Attendance Requests', 'essl': 'eSSL Biometric Import',
         'special-powers': 'Special Attendance Powers', 'ess-att-requests': 'OD & Punch Requests',
         'leave': 'Leave & Capacity', 'performance': 'Performance & Appraisals', 'succession': '9-Box Succession',
         'offboarding': 'Exit & Offboarding', 'shifts': 'Shift Scheduling', 'timesheets': 'Project Timesheets',
@@ -6712,6 +6815,7 @@ function runViewHooks(viewId) {
     if (viewId === 'reports') renderReportCenter();
     if (viewId === 'attendance-register') renderManualAttendance();
     if (viewId === 'att-requests') renderAttendanceRequests();
+    if (viewId === 'essl') renderEsslView();
     if (viewId === 'special-powers') renderSpecialPowers();
     if (viewId === 'ess-att-requests') renderESSAttendanceRequests();
     if (viewId === 'helpdesk') renderAdminHelpdesk();
@@ -14363,6 +14467,7 @@ const PERSISTED = ['employees', 'nextEmpSeq', 'leaveLedger', 'nextLeaveSeq', 'le
     'attendancePolicy', 'dailyAttendance', 'regularisations', 'nextRegSeq', 'compOffLedger', 'nextCompOffSeq',
     'attendanceRequestPolicy', 'attendanceRequests', 'nextAttReqSeq', 'dutyMarks', 'specialPowers', 'nextSpecialSeq',
     'punchLog', 'nextPunchSeq', 'manualAttendance', 'nextManualSeq', 'establishment',
+    'esslConfig', 'esslBatches', 'nextEsslBatchSeq',
     'notices', 'nextNoticeSeq',
     'goals', 'nextGoalSeq', 'goalCycles', 'activeGoalCycle', 'reviews', 'reviewCycles', 'activeReviewCycle',
     'recognitions', 'nextRecognitionSeq', 'recognitionBudget', 'feedbackNotes', 'nextFeedbackSeq',
@@ -14419,6 +14524,7 @@ function refreshEverything() {
     renderAttendancePolicy(); renderRegularisations(); renderCompOff(); renderESSAttendanceSummary();
     renderAttendanceRequests(); renderESSAttendanceRequests(); renderSpecialPowers();
     seedPunchesFromDaily(); renderManualAttendance(); renderEdgeLogs(); renderReportCenter(); renderGeoFences();
+    renderEsslView();
     renderPerformance(); renderSuccession(); renderRecognition(); renderCompPlanning();
     renderJourneys(); renderClearance(); renderProbation(); renderAnalytics();
     renderForm16List(); renderExpensePolicy(); renderESSPerformance();
@@ -15141,6 +15247,601 @@ function sendWAMessage() {
 }
 
 // ==========================================================================
+// eSSL / BIOMETRIC DEVICE IMPORT
+//
+// eSSL devices (and the eTimeTrackLite software behind them) know people by an
+// enrolment number, write one row per punch, and export in whatever shape the
+// installed version happens to use. So nothing here is hard-coded to one
+// layout: columns are detected and remappable, the date format is decided from
+// the whole file rather than guessed per row, and direction is resolved from
+// the device's own state code where there is one and derived where there is not.
+//
+// An imported punch is written with pushPunch and rolled up with
+// syncDailyFromPunches — the same path a web clock-in takes — so late marks,
+// half days, overtime and the payroll muster recompute from it. There is no
+// separate "imported attendance" that could disagree with the rest.
+// ==========================================================================
+
+var esslConfig = {
+    map: {},                 // eSSL user id -> employee id
+    dateFormat: 'auto',      // auto | dmy | mdy | ymd
+    directionMode: 'auto',   // auto (alternate) | column (device state) | inout-device
+    dedupe: true,
+    ignoreBefore: '',        // never import punches before this date
+    lastImport: ''
+};
+var esslBatches = [];
+var nextEsslBatchSeq = 1;
+var esslStage = null;        // the parsed-but-not-yet-written import
+
+// Column aliases seen across eTimeTrackLite versions and raw device logs.
+const ESSL_ALIASES = {
+    userId:    ['userid', 'user id', 'user_id', 'employeecode', 'employee code', 'empcode', 'emp code',
+                'enrollno', 'enroll no', 'enrollnumber', 'enrolment no', 'enrollmentno', 'acno', 'ac-no',
+                'ac no', 'badgenumber', 'badge number', 'pin', 'deviceuserid', 'device user id', 'indexid'],
+    stamp:     ['logdate', 'log date', 'datetime', 'date time', 'date/time', 'punchtime', 'punch time',
+                'attdatetime', 'attendancedate', 'recordtime', 'checktime', 'punchdatetime', 'timestamp'],
+    date:      ['date', 'attdate', 'punchdate', 'logday'],
+    time:      ['time', 'intime', 'in time', 'punch', 'checktimeonly'],
+    direction: ['direction', 'attdirection', 'inout', 'in/out', 'in out', 'status', 'state', 'type',
+                'punchstate', 'checktype', 'verifystate'],
+    device:    ['deviceid', 'device id', 'devicename', 'device name', 'machine', 'machineno', 'terminal',
+                'sn', 'serialnumber', 'serial number', 'devicesn'],
+    name:      ['employeename', 'employee name', 'name', 'username', 'user name']
+};
+function esslNorm(h) { return String(h == null ? '' : h).toLowerCase().replace(/[\s_.\-]+/g, ''); }
+function esslFieldFor(header) {
+    const n = esslNorm(header);
+    if (!n) return '';
+    for (const field in ESSL_ALIASES) {
+        if (ESSL_ALIASES[field].some(a => esslNorm(a) === n)) return field;
+    }
+    return '';
+}
+// A header row has words in it; a raw device log starts straight in on data.
+function esslLooksLikeHeader(row) {
+    if (!row || !row.length) return false;
+    const hits = row.filter(c => esslFieldFor(c)).length;
+    if (hits >= 2) return true;
+    // A first cell that is not a number and not a date is a label, not a punch.
+    const first = String(row[0] == null ? '' : row[0]).trim();
+    return !!first && !/^[0-9]+$/.test(first) && !esslParseStamp(first, 'auto');
+}
+
+// --- Dates ---------------------------------------------------------------
+// 01/02/2026 is either 1 February or 2 January, and no single row can say
+// which. The format is therefore decided once, from every row in the file:
+// a day past 12 anywhere settles it, and anything still ambiguous is reported
+// rather than assumed.
+function esslSplitStamp(v) {
+    if (v == null) return null;
+    // Excel keeps dates as a serial day count; the fraction is the time.
+    if (typeof v === 'number' && v > 20000 && v < 90000) {
+        const ms = Math.round((v - 25569) * 86400000);
+        const d = new Date(ms);
+        return { parts: [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()], ymd: true,
+                 hh: d.getUTCHours(), mm: d.getUTCMinutes(), ss: d.getUTCSeconds() };
+    }
+    const text = String(v).trim();
+    if (!text) return null;
+    const m = text.match(/^(\d{1,4})[-\/.](\d{1,2}|[A-Za-z]{3,})[-\/.](\d{1,4})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm])?)?/);
+    if (!m) return null;
+    const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    let a = m[1], b = m[2], c = m[3];
+    let namedMonth = 0;
+    if (/^[A-Za-z]+$/.test(b)) {
+        namedMonth = MONTHS.indexOf(b.slice(0, 3).toLowerCase()) + 1;
+        if (!namedMonth) return null;
+    }
+    let hh = m[4] ? parseInt(m[4], 10) : 0;
+    const mm = m[5] ? parseInt(m[5], 10) : 0;
+    const ss = m[6] ? parseInt(m[6], 10) : 0;
+    const ap = m[7] ? m[7].toLowerCase() : '';
+    if (ap === 'pm' && hh < 12) hh += 12;
+    if (ap === 'am' && hh === 12) hh = 0;
+    return { parts: [parseInt(a, 10), namedMonth || parseInt(b, 10), parseInt(c, 10)],
+             ymd: String(a).length === 4, namedMonth: !!namedMonth, hh: hh, mm: mm, ss: ss, raw: text };
+}
+// Look at every stamp in the file and work out which arrangement fits them all.
+function esslDetectFormat(values) {
+    let sawFirstOver12 = false, sawSecondOver12 = false, sawYearFirst = false, sawNamed = false;
+    values.forEach(v => {
+        const p = esslSplitStamp(v);
+        if (!p) return;
+        if (p.ymd) { sawYearFirst = true; return; }
+        if (p.namedMonth) { sawNamed = true; return; }
+        if (p.parts[0] > 12) sawFirstOver12 = true;
+        if (p.parts[1] > 12) sawSecondOver12 = true;
+    });
+    if (sawYearFirst && !sawFirstOver12 && !sawSecondOver12) return { fmt: 'ymd', certain: true };
+    if (sawFirstOver12 && sawSecondOver12) return { fmt: 'dmy', certain: false, conflict: true };
+    if (sawFirstOver12) return { fmt: 'dmy', certain: true };
+    if (sawSecondOver12) return { fmt: 'mdy', certain: true };
+    if (sawNamed) return { fmt: 'dmy', certain: true };
+    // Nothing in the file settles it. eSSL in India writes day-first, so that is
+    // the default — but the import says so rather than silently choosing.
+    return { fmt: 'dmy', certain: false };
+}
+function esslParseStamp(v, fmt) {
+    const p = esslSplitStamp(v);
+    if (!p) return null;
+    let y, mo, d;
+    if (p.ymd) { y = p.parts[0]; mo = p.parts[1]; d = p.parts[2]; }
+    else if (p.namedMonth) { d = p.parts[0]; mo = p.parts[1]; y = p.parts[2]; }
+    else if (fmt === 'mdy') { mo = p.parts[0]; d = p.parts[1]; y = p.parts[2]; }
+    else if (fmt === 'ymd') { y = p.parts[0]; mo = p.parts[1]; d = p.parts[2]; }
+    else { d = p.parts[0]; mo = p.parts[1]; y = p.parts[2]; }
+    if (y < 100) y += 2000;
+    if (!y || !mo || !d || mo > 12 || d > 31 || p.hh > 23 || p.mm > 59) return null;
+    return { iso: y + '-' + pad2(mo) + '-' + pad2(d), time: pad2(p.hh) + ':' + pad2(p.mm) };
+}
+
+// --- Direction -----------------------------------------------------------
+// ZKTeco-based devices (which eSSL rebrands) write a state code: 0 check-in,
+// 1 check-out, 2 break-out, 3 break-in, 4 OT-in, 5 OT-out.
+function esslParseDirection(v) {
+    if (v == null || v === '') return '';
+    const t = String(v).trim().toLowerCase();
+    if (['0', '3', '4', 'i', 'in', 'c/in', 'checkin', 'check-in', 'check in', 'duty on', 'entry'].indexOf(t) !== -1) return 'IN';
+    if (['1', '2', '5', 'o', 'out', 'c/out', 'checkout', 'check-out', 'check out', 'duty off', 'exit'].indexOf(t) !== -1) return 'OUT';
+    return '';
+}
+
+// --- Reading a file ------------------------------------------------------
+function esslDragOver(e) { e.preventDefault(); const z = document.getElementById('essl-drop'); if (z) z.classList.add('is-over'); }
+function esslDragLeave() { const z = document.getElementById('essl-drop'); if (z) z.classList.remove('is-over'); }
+function esslDrop(e) {
+    e.preventDefault(); esslDragLeave();
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) readEsslFile(f);
+}
+function onEsslFile(input) { if (input.files && input.files[0]) readEsslFile(input.files[0]); input.value = ''; }
+function esslStatus(html, colour) {
+    const el = document.getElementById('essl-file-status');
+    if (el) el.innerHTML = '<span style="color:' + (colour || 'var(--secondary)') + '">' + html + '</span>';
+}
+function readEsslFile(file) {
+    const name = (file.name || '').toLowerCase();
+    esslStatus('Reading <strong>' + esc(file.name) + '</strong>…');
+    if (/\.(xlsx|xlsm)$/.test(name)) {
+        const fr = new FileReader();
+        fr.onload = () => parseXLSX(fr.result).then(res => {
+            esslStatus('Read <strong>' + esc(file.name) + '</strong> — sheet "' + esc(res.sheetName) + '", ' + res.rows.length + ' row(s).', 'var(--success)');
+            ingestEsslRows(res.rows, file.name);
+        }).catch(err => { esslStatus('Could not read that workbook — ' + esc(err.message), 'var(--danger)'); showToast(err.message, 'error'); });
+        fr.onerror = () => esslStatus('Could not read the file.', 'var(--danger)');
+        fr.readAsArrayBuffer(file);
+        return;
+    }
+    if (/\.xls$/.test(name)) return esslStatus('The old binary .xls format is not supported. Save it as .xlsx or CSV.', 'var(--danger)');
+    const fr = new FileReader();
+    fr.onload = () => {
+        const text = String(fr.result);
+        // A raw device log is tab-separated; an export may be anything.
+        const rows = parseCSV(text, detectDelimiter(text));
+        esslStatus('Read <strong>' + esc(file.name) + '</strong> — ' + rows.length + ' row(s).', 'var(--success)');
+        ingestEsslRows(rows, file.name);
+    };
+    fr.onerror = () => esslStatus('Could not read the file.', 'var(--danger)');
+    fr.readAsText(file);
+}
+function ingestEsslPasted() {
+    const text = (document.getElementById('essl-text') || {}).value || '';
+    if (!text.trim()) return showToast('Paste some rows first, or drop a file.', 'error');
+    ingestEsslRows(parseCSV(text, detectDelimiter(text)), 'pasted text');
+}
+
+// Work out what each column is, then hand over to the preview.
+function ingestEsslRows(rows, source) {
+    rows = (rows || []).filter(r => r && r.some(c => String(c == null ? '' : c).trim() !== ''));
+    if (!rows.length) { esslStage = null; return renderEsslPreview(); }
+    const hasHeader = esslLooksLikeHeader(rows[0]);
+    const header = hasHeader ? rows[0] : [];
+    const body = hasHeader ? rows.slice(1) : rows;
+    const width = body.reduce((a, r) => Math.max(a, r.length), 0);
+    const cols = {};
+    if (hasHeader) {
+        header.forEach((h, i) => { const f = esslFieldFor(h); if (f && cols[f] === undefined) cols[f] = i; });
+    }
+    // A headerless device log is positional: user id, timestamp, state.
+    if (cols.userId === undefined) cols.userId = 0;
+    if (cols.stamp === undefined && cols.date === undefined) cols.stamp = 1;
+    if (cols.direction === undefined && !hasHeader && width > 2) cols.direction = 2;
+    esslStage = { rows: body, header: header, hasHeader: hasHeader, width: width, cols: cols, source: source };
+    buildEsslPreview();
+}
+
+// Turn the staged rows into punches, saying for every row what will happen.
+function buildEsslPreview() {
+    const st = esslStage;
+    if (!st) return renderEsslPreview();
+    const col = (r, f) => (st.cols[f] === undefined ? '' : (r[st.cols[f]] === undefined ? '' : r[st.cols[f]]));
+    const stampValues = st.rows.map(r => st.cols.stamp !== undefined ? col(r, 'stamp')
+        : String(col(r, 'date')) + ' ' + String(col(r, 'time')));
+    const detected = esslDetectFormat(stampValues);
+    const fmt = esslConfig.dateFormat === 'auto' ? detected.fmt : esslConfig.dateFormat;
+    st.detected = detected;
+    st.fmtUsed = fmt;
+
+    const seenKeys = {};              // within this file
+    const parsed = [], problems = [], unmapped = {};
+    st.rows.forEach((r, i) => {
+        const rawUser = String(col(r, 'userId') == null ? '' : col(r, 'userId')).trim();
+        const stampRaw = st.cols.stamp !== undefined ? col(r, 'stamp')
+            : (String(col(r, 'date')).trim() + ' ' + String(col(r, 'time')).trim()).trim();
+        if (!rawUser) { problems.push({ row: i + 1, why: 'No device user ID' }); return; }
+        const when = esslParseStamp(stampRaw, fmt);
+        if (!when) { problems.push({ row: i + 1, why: 'Could not read the date/time "' + String(stampRaw).slice(0, 32) + '"' }); return; }
+        if (esslConfig.ignoreBefore && when.iso < esslConfig.ignoreBefore) {
+            problems.push({ row: i + 1, why: 'Before the ' + prettyDate(esslConfig.ignoreBefore) + ' cut-off', soft: true }); return;
+        }
+        const empId = esslConfig.map[rawUser];
+        if (!empId || !empById(empId)) {
+            unmapped[rawUser] = (unmapped[rawUser] || 0) + 1;
+            return;
+        }
+        const emp = empById(empId);
+        if (emp.doj && when.iso < emp.doj) { problems.push({ row: i + 1, why: emp.name + ' had not joined on ' + prettyDate(when.iso), soft: true }); return; }
+        if (emp.exitDate && when.iso > emp.exitDate) { problems.push({ row: i + 1, why: emp.name + ' had left by ' + prettyDate(when.iso), soft: true }); return; }
+        parsed.push({ empId: empId, iso: when.iso, time: when.time,
+                      dir: esslParseDirection(col(r, 'direction')),
+                      device: String(col(r, 'device') || '').trim(), row: i + 1 });
+    });
+
+    // Direction, where the device did not say: sort the person's day and
+    // alternate from the first punch, which is what an in/out reader produces.
+    const byDay = {};
+    parsed.forEach(p => { const k = p.empId + '|' + p.iso; (byDay[k] = byDay[k] || []).push(p); });
+    Object.keys(byDay).forEach(k => {
+        const list = byDay[k].sort((a, b) => a.time.localeCompare(b.time));
+        if (esslConfig.directionMode === 'auto' || list.every(p => !p.dir)) {
+            list.forEach((p, i) => { if (!p.dir) p.dir = (i % 2 === 0) ? 'IN' : 'OUT'; });
+        } else {
+            list.forEach((p, i) => { if (!p.dir) p.dir = (i % 2 === 0) ? 'IN' : 'OUT'; });
+        }
+    });
+
+    // Duplicates: against this file, and against punches already in the log.
+    const fresh = [], dupes = [];
+    parsed.sort((a, b) => (a.empId + a.iso + a.time).localeCompare(b.empId + b.iso + b.time)).forEach(p => {
+        const key = p.empId + '|' + p.iso + '|' + p.time + '|' + p.dir;
+        const already = esslConfig.dedupe &&
+            (seenKeys[key] || punchLog.some(x => x.empId === p.empId && x.date === p.iso && x.time === p.time && x.direction === p.dir));
+        if (already) { dupes.push(p); return; }
+        seenKeys[key] = true;
+        fresh.push(p);
+    });
+
+    const days = {};
+    fresh.forEach(p => { days[p.empId + '|' + p.iso] = true; });
+    st.parsed = parsed; st.fresh = fresh; st.dupes = dupes; st.problems = problems;
+    st.unmapped = unmapped; st.dayCount = Object.keys(days).length;
+    st.dates = fresh.map(p => p.iso).sort();
+    renderEsslPreview();
+}
+
+function commitEsslImport() {
+    const st = esslStage;
+    if (!st || !st.fresh || !st.fresh.length) return showToast('Nothing to import.', 'warning');
+    const batchId = 'ESSL-' + String(nextEsslBatchSeq++).padStart(3, '0');
+    const written = [];
+    const touched = {};
+    st.fresh.forEach(p => {
+        const rec = pushPunch(p.empId, p.iso, p.time, p.dir, 'Biometric',
+            p.device || 'eSSL device', batchId, { geoStatus: 'device' });
+        written.push(rec.id);
+        touched[p.empId + '|' + p.iso] = true;
+    });
+    // Rebuild each touched day, and clear a recorded absence the punches disprove.
+    let absencesCleared = 0;
+    Object.keys(touched).forEach(k => {
+        const [empId, iso] = k.split('|');
+        syncDailyFromPunches(empId, iso);
+        if (attendanceExceptions[empId] && attendanceExceptions[empId][iso] === 'A') {
+            delete attendanceExceptions[empId][iso];
+            absencesCleared++;
+        }
+    });
+    const batch = { id: batchId, on: new Date().toLocaleString('en-GB'), by: session ? session.email : 'HR',
+        source: st.source, punchIds: written, count: written.length,
+        skipped: (st.dupes || []).length + (st.problems || []).length,
+        from: st.dates[0] || '', to: st.dates[st.dates.length - 1] || '',
+        days: st.dayCount, absencesCleared: absencesCleared };
+    esslBatches.unshift(batch);
+    esslConfig.lastImport = batch.on;
+    audit('eSSL import', batchId + ' · ' + written.length + ' punch(es) across ' + st.dayCount +
+        ' employee-day(s) from ' + st.source, 'Attendance');
+    esslStage = null;
+    refreshAttendanceViews();
+    renderEsslView();
+    esslStatus('');
+    showToast(written.length + ' punch(es) imported across ' + st.dayCount + ' employee-day(s).' +
+        (absencesCleared ? ' ' + absencesCleared + ' recorded absence(s) cleared.' : ''), 'success');
+}
+function discardEsslImport() { esslStage = null; esslStatus(''); renderEsslPreview(); }
+
+function undoEsslBatch(id) {
+    const batch = esslBatches.find(b => b.id === id);
+    if (!batch) return;
+    if (!confirm('Undo ' + id + '?\n\nThis removes the ' + batch.count + ' punch(es) it wrote and rebuilds those days from whatever is left.')) return;
+    const ids = {};
+    batch.punchIds.forEach(i => { ids[i] = true; });
+    const touched = {};
+    punchLog.forEach(p => { if (ids[p.id]) touched[p.empId + '|' + p.date] = true; });
+    punchLog = punchLog.filter(p => !ids[p.id]);
+    Object.keys(touched).forEach(k => { const [e, d] = k.split('|'); syncDailyFromPunches(e, d); });
+    esslBatches = esslBatches.filter(b => b.id !== id);
+    audit('eSSL import undone', id + ' · ' + batch.count + ' punch(es) removed', 'Attendance');
+    refreshAttendanceViews();
+    renderEsslView();
+    showToast(id + ' undone — ' + batch.count + ' punch(es) removed.', 'success');
+}
+
+// --- Screens -------------------------------------------------------------
+function renderEsslView() { renderEsslStats(); renderEsslMapping(); renderEsslPreview(); renderEsslBatches(); }
+
+function renderEsslStats() {
+    const el = document.getElementById('essl-stats');
+    if (!el) return;
+    const mapped = Object.keys(esslConfig.map).filter(k => empById(esslConfig.map[k])).length;
+    const onRoll = employees.filter(e => !e.exitDate || e.exitDate >= DEMO_TODAY).length;
+    const imported = punchLog.filter(p => p.source === 'Biometric' && /^ESSL-/.test(p.by || '')).length;
+    el.innerHTML =
+        statTile('Device IDs mapped', mapped + ' / ' + onRoll, mapped < onRoll ? 'var(--warning)' : 'var(--success)') +
+        statTile('Imports run', esslBatches.length) +
+        statTile('Punches imported', imported) +
+        statTile('Last import', esslConfig.lastImport ? esslConfig.lastImport.split(',')[0] : 'never') +
+        statTile('Duplicate guard', esslConfig.dedupe ? 'On' : 'Off', esslConfig.dedupe ? 'var(--success)' : 'var(--warning)');
+}
+
+function renderEsslMapping() {
+    const tb = document.getElementById('essl-map-table');
+    if (!tb) return;
+    const keys = Object.keys(esslConfig.map).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (!keys.length) {
+        tb.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">' +
+            'No device IDs mapped yet. <strong>Auto-match by code</strong> takes the digits out of each employee code ' +
+            '(EMP-042 → 42), which is how most eSSL enrolments are numbered.</td></tr>';
+        return;
+    }
+    tb.innerHTML = keys.map(k => {
+        const emp = empById(esslConfig.map[k]);
+        const count = punchLog.filter(p => emp && p.empId === emp.id && p.source === 'Biometric').length;
+        return '<tr>' +
+            '<td><strong style="font-family:monospace;">' + esc(k) + '</strong></td>' +
+            '<td>' + (emp ? esc(emp.name) + ' <span style="font-size:0.72rem; color:var(--text-muted);">' + esc(emp.id) + '</span>'
+                          : '<span style="color:var(--danger);">Employee no longer exists</span>') + '</td>' +
+            '<td style="font-size:0.82rem;">' + (emp ? esc(emp.dept) : '--') + '</td>' +
+            '<td>' + count + '</td>' +
+            '<td><button class="btn btn-outline" style="padding:4px 8px; font-size:0.72rem;" onclick="editEsslMapRow(\'' + esc(k) + '\')">Change</button> ' +
+                '<button class="btn btn-outline" style="padding:4px 8px; font-size:0.72rem;" onclick="removeEsslMapRow(\'' + esc(k) + '\')">Remove</button></td>' +
+        '</tr>';
+    }).join('');
+}
+function addEsslMapRow(prefill) {
+    const id = prompt('eSSL device user ID (the enrolment number on the device):', prefill || '');
+    if (!id || !id.trim()) return;
+    editEsslMapRow(id.trim(), true);
+}
+function editEsslMapRow(deviceId, isNew) {
+    const list = employees.map((e, i) => (i + 1) + '. ' + e.name + ' (' + e.id + ')').join('\n');
+    const cur = esslConfig.map[deviceId];
+    const curIdx = cur ? employees.findIndex(e => e.id === cur) + 1 : '';
+    const pick = prompt('Device ID ' + deviceId + ' belongs to which employee?\n\n' + list + '\n\nEnter the number:', curIdx || '');
+    if (pick === null) return;
+    const idx = parseInt(pick, 10);
+    if (!idx || idx < 1 || idx > employees.length) return showToast('That is not one of the listed numbers.', 'error');
+    esslConfig.map[deviceId] = employees[idx - 1].id;
+    audit('eSSL mapping set', 'Device ' + deviceId + ' → ' + employees[idx - 1].name, 'Attendance');
+    if (esslStage) buildEsslPreview();
+    renderEsslView();
+    showToast('Device ' + deviceId + ' mapped to ' + employees[idx - 1].name + '.', 'success');
+}
+function removeEsslMapRow(deviceId) {
+    if (!confirm('Remove the mapping for device ID ' + deviceId + '?\n\nPunches already imported stay; future imports for this ID will not resolve.')) return;
+    delete esslConfig.map[deviceId];
+    audit('eSSL mapping removed', 'Device ' + deviceId, 'Attendance');
+    if (esslStage) buildEsslPreview();
+    renderEsslView();
+}
+// Most eSSL enrolments are numbered from the employee code, so the digits
+// usually line up. Anything ambiguous is left for a human.
+function autoMatchEsslIds() {
+    let added = 0, clashed = 0;
+    employees.forEach(e => {
+        const digits = String(e.id).replace(/\D+/g, '').replace(/^0+/, '');
+        if (!digits) return;
+        const taken = esslConfig.map[digits];
+        if (taken && taken !== e.id) { clashed++; return; }
+        if (taken === e.id) return;
+        esslConfig.map[digits] = e.id;
+        added++;
+    });
+    audit('eSSL auto-match', added + ' mapping(s) created', 'Attendance');
+    if (esslStage) buildEsslPreview();
+    renderEsslView();
+    showToast(added ? added + ' device ID(s) matched by employee code.' + (clashed ? ' ' + clashed + ' clashed and were left alone.' : '')
+        : 'Nothing new to match.', added ? 'success' : 'warning');
+}
+function exportEsslMapping() {
+    const rows = [['eSSL Device Mapping', prettyDate(DEMO_TODAY)], [], ['Device User ID', 'Employee Code', 'Employee', 'Department', 'Date of joining']];
+    Object.keys(esslConfig.map).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).forEach(k => {
+        const e = empById(esslConfig.map[k]);
+        rows.push([k, esslConfig.map[k], e ? e.name : 'MISSING', e ? e.dept : '', e ? e.doj : '']);
+    });
+    downloadRows('eSSL_Device_Mapping_' + DEMO_TODAY + '.csv', rows);
+    showToast('Device mapping exported.', 'success');
+}
+
+function renderEsslPreview() {
+    const wrap = document.getElementById('essl-preview');
+    if (!wrap) return;
+    const st = esslStage;
+    if (!st) { wrap.innerHTML = ''; return; }
+    const unmappedKeys = Object.keys(st.unmapped || {});
+    const fmtLabel = { dmy: 'day-month-year', mdy: 'month-day-year', ymd: 'year-month-day' }[st.fmtUsed] || st.fmtUsed;
+    const hard = (st.problems || []).filter(p => !p.soft);
+    const soft = (st.problems || []).filter(p => p.soft);
+    const colPick = (field, label) => {
+        const width = Math.max(st.width, st.header.length);
+        let opts = '<option value="">— not in this file —</option>';
+        for (let i = 0; i < width; i++) {
+            const name = st.hasHeader && st.header[i] ? String(st.header[i]) : 'Column ' + (i + 1);
+            const sample = st.rows.length ? String(st.rows[0][i] == null ? '' : st.rows[0][i]).slice(0, 18) : '';
+            opts += '<option value="' + i + '"' + (st.cols[field] === i ? ' selected' : '') + '>' +
+                esc(name) + (sample ? ' — e.g. ' + esc(sample) : '') + '</option>';
+        }
+        return '<div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">' + label + '</label>' +
+            '<select onchange="setEsslCol(\'' + field + '\', this.value)" style="font-size:0.8rem;">' + opts + '</select></div>';
+    };
+
+    wrap.innerHTML =
+    '<div class="card">' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px;">' +
+            '<div><h3 style="font-size:1rem;">Preview — ' + esc(st.source) + '</h3>' +
+            '<p style="font-size:0.82rem; color:var(--text-muted);">' + st.rows.length + ' row(s) read' +
+            (st.hasHeader ? ', header row detected' : ', no header row — read as a raw device log') + '. Nothing is written until you import.</p></div>' +
+        '</div>' +
+
+        '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:16px;">' +
+            colPick('userId', 'Device user ID') +
+            colPick('stamp', 'Date &amp; time') +
+            colPick('date', 'Date (if separate)') +
+            colPick('time', 'Time (if separate)') +
+            colPick('direction', 'In / out state') +
+            colPick('device', 'Device') +
+        '</div>' +
+
+        '<div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; margin-bottom:16px; padding:12px; background:var(--bg-main); border-radius:8px;">' +
+            '<div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Date format</label>' +
+                '<select onchange="setEsslDateFormat(this.value)" style="font-size:0.8rem; width:auto;">' +
+                ['auto', 'dmy', 'mdy', 'ymd'].map(f => '<option value="' + f + '"' + (esslConfig.dateFormat === f ? ' selected' : '') + '>' +
+                    ({ auto: 'Detect automatically', dmy: 'Day-Month-Year (16/04/2026)', mdy: 'Month-Day-Year (04/16/2026)', ymd: 'Year-Month-Day (2026-04-16)' })[f] + '</option>').join('') +
+                '</select></div>' +
+            '<div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Ignore punches before</label>' +
+                '<input type="date" value="' + esc(esslConfig.ignoreBefore || '') + '" onchange="setEsslIgnoreBefore(this.value)" style="font-size:0.8rem; width:auto;"></div>' +
+            '<label style="display:flex; gap:7px; align-items:center; font-size:0.8rem; text-transform:none; font-weight:400; color:var(--text-dark);">' +
+                '<input type="checkbox" style="width:15px;height:15px;"' + (esslConfig.dedupe ? ' checked' : '') + ' onchange="setEsslDedupe(this.checked)">' +
+                'Skip punches already in the log</label>' +
+        '</div>' +
+
+        (st.detected && !st.detected.certain
+            ? '<div class="card" style="background:#fffbeb; border-color:#fde68a; font-size:0.83rem; margin-bottom:14px;">' +
+              '<strong>Check the date format.</strong> ' +
+              (st.detected.conflict
+                ? 'This file has rows that only fit day-first and rows that only fit month-first — it is mixed, which usually means two exports were pasted together. '
+                : 'Every date in this file has a day of 12 or less, so day-first and month-first both fit. ') +
+              'It is being read as <strong>' + fmtLabel + '</strong>. Set it explicitly above if that is wrong.</div>'
+            : '') +
+
+        '<div class="stat-strip" style="margin-bottom:14px;">' +
+            statTile('Will import', (st.fresh || []).length, 'var(--success)') +
+            statTile('Employee-days', st.dayCount || 0) +
+            statTile('Already in log', (st.dupes || []).length) +
+            statTile('Unmapped IDs', unmappedKeys.length, unmappedKeys.length ? 'var(--warning)' : undefined) +
+            statTile('Unusable rows', hard.length, hard.length ? 'var(--danger)' : undefined) +
+            statTile('Outside service', soft.length) +
+        '</div>' +
+
+        (unmappedKeys.length
+            ? '<div class="card" style="background:#fffbeb; border-color:#fde68a; margin-bottom:14px;">' +
+              '<strong style="font-size:0.88rem;">' + unmappedKeys.length + ' device ID(s) belong to nobody yet</strong>' +
+              '<p style="font-size:0.8rem; color:var(--text-muted); margin:5px 0 10px;">Their punches are held back rather than guessed at. Map them and the preview updates.</p>' +
+              '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+              unmappedKeys.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(k =>
+                  '<button class="btn btn-outline" style="padding:5px 10px; font-size:0.78rem;" onclick="addEsslMapRow(\'' + esc(k) + '\')">' +
+                  'ID ' + esc(k) + ' <span style="color:var(--text-muted);">· ' + st.unmapped[k] + ' punch(es)</span></button>').join('') +
+              '</div></div>'
+            : '') +
+
+        (hard.length
+            ? '<div style="margin-bottom:14px;"><strong style="font-size:0.85rem; color:var(--danger);">Rows that cannot be read</strong>' +
+              '<div style="font-size:0.78rem; color:var(--text-muted); margin-top:5px; max-height:110px; overflow-y:auto;">' +
+              hard.slice(0, 25).map(p => 'Row ' + p.row + ' — ' + esc(p.why)).join('<br>') +
+              (hard.length > 25 ? '<br>…and ' + (hard.length - 25) + ' more' : '') + '</div></div>'
+            : '') +
+
+        ((st.fresh || []).length
+            ? '<div style="overflow-x:auto; max-height:320px; overflow-y:auto; border:1px solid var(--border); border-radius:8px;">' +
+              '<table><thead><tr><th>Employee</th><th>Date</th><th>Time</th><th>Direction</th><th>Device</th></tr></thead><tbody>' +
+              st.fresh.slice(0, 200).map(p => '<tr>' +
+                  '<td style="font-size:0.82rem;">' + esc(empName(p.empId)) + '</td>' +
+                  '<td style="font-size:0.82rem;">' + prettyDate(p.iso) + '</td>' +
+                  '<td style="font-family:monospace; font-size:0.82rem;">' + esc(p.time) + '</td>' +
+                  '<td><span class="badge ' + (p.dir === 'IN' ? 'badge-success' : 'badge-info') + '">' + p.dir + '</span></td>' +
+                  '<td style="font-size:0.78rem; color:var(--text-muted);">' + esc(p.device || 'eSSL device') + '</td></tr>').join('') +
+              '</tbody></table></div>' +
+              (st.fresh.length > 200 ? '<div style="font-size:0.76rem; color:var(--text-muted); margin-top:6px;">Showing the first 200 of ' + st.fresh.length + '.</div>' : '')
+            : '<div class="card" style="background:var(--bg-main); font-size:0.85rem;">Nothing in this file is ready to import yet — map the device IDs above, or check the date format.</div>') +
+
+        '<div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">' +
+            '<button class="btn btn-outline" onclick="discardEsslImport()">Discard</button>' +
+            '<button class="btn btn-primary"' + ((st.fresh || []).length ? '' : ' disabled') + ' onclick="commitEsslImport()">Import ' + (st.fresh || []).length + ' punch(es)</button>' +
+        '</div>' +
+    '</div>';
+}
+function setEsslCol(field, value) {
+    if (!esslStage) return;
+    if (value === '') delete esslStage.cols[field]; else esslStage.cols[field] = parseInt(value, 10);
+    buildEsslPreview();
+}
+function setEsslDateFormat(v) { esslConfig.dateFormat = v; if (esslStage) buildEsslPreview(); }
+function setEsslIgnoreBefore(v) { esslConfig.ignoreBefore = v; if (esslStage) buildEsslPreview(); }
+function setEsslDedupe(v) { esslConfig.dedupe = v; if (esslStage) buildEsslPreview(); else renderEsslStats(); }
+
+function renderEsslBatches() {
+    const tb = document.getElementById('essl-batch-table');
+    if (!tb) return;
+    if (!esslBatches.length) {
+        tb.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No imports yet.</td></tr>';
+        return;
+    }
+    tb.innerHTML = esslBatches.map(b => '<tr>' +
+        '<td><strong style="font-family:monospace; font-size:0.8rem;">' + esc(b.id) + '</strong></td>' +
+        '<td style="font-size:0.78rem;">' + esc(b.on) + '</td>' +
+        '<td style="font-size:0.8rem;">' + esc(b.source) + '</td>' +
+        '<td style="font-size:0.8rem;">' + (b.from ? prettyDate(b.from) + ' → ' + prettyDate(b.to) : '--') +
+            '<br><span style="font-size:0.72rem; color:var(--text-muted);">' + b.days + ' employee-day(s)</span></td>' +
+        '<td><strong>' + b.count + '</strong></td>' +
+        '<td style="font-size:0.8rem; color:var(--text-muted);">' + b.skipped + '</td>' +
+        '<td style="font-size:0.78rem;">' + esc(b.by) + '</td>' +
+        '<td><button class="btn btn-outline" style="padding:4px 8px; font-size:0.72rem;" onclick="undoEsslBatch(\'' + b.id + '\')">Undo</button></td>' +
+    '</tr>').join('');
+}
+
+// The statement the sync script runs, written out so it can be checked against
+// the actual eTimeTrackLite schema before anything is automated.
+function downloadEsslSqlQuery() {
+    const sql = [
+        '-- eSSL / eTimeTrackLite → BISCS HRMS punch feed',
+        '-- Run against the MySQL database eTimeTrackLite writes to.',
+        '--',
+        '-- VERIFY THE TABLE AND COLUMN NAMES FIRST. eTimeTrackLite has shipped',
+        '-- several schemas; DeviceLogs is the usual raw punch table, but check',
+        '-- yours with:   SHOW TABLES;   and   DESCRIBE DeviceLogs;',
+        '--',
+        '-- :since is a watermark — keep the highest DeviceLogId already pulled',
+        '-- and pass it back next run, so each punch is fetched exactly once.',
+        '',
+        'SELECT',
+        '    dl.DeviceLogId        AS log_id,',
+        '    dl.UserId             AS device_user_id,',
+        '    dl.LogDate            AS punch_at,',
+        '    dl.Direction          AS direction,',
+        '    dl.DeviceId           AS device_id',
+        'FROM DeviceLogs dl',
+        'WHERE dl.DeviceLogId > :since',
+        'ORDER BY dl.DeviceLogId',
+        'LIMIT 50000;',
+        '',
+        '-- Export as CSV and drop it into eSSL Device Import, or let',
+        '-- tools/essl-sync do both steps on a schedule.'
+    ].join('\n');
+    downloadText("essl_devicelogs_query.sql", sql, "text/plain;charset=utf-8;");
+    showToast('MySQL query downloaded — check the column names against your install.', 'success');
+}
+
+// ==========================================================================
 // IDENTITY, TENANCY & MODULE ENTITLEMENT
 //
 // Three things decide what a person sees, in this order:
@@ -15182,6 +15883,9 @@ const MODULE_CATALOG = [
     { key: 'attendance', name: 'Time & Attendance', icon: '⏱️', cat: 'Time', needs: ['ess'],
       desc: 'Punch log and clock in/out, the universal edge gateway, attendance register, geo-fencing, OD and punch requests, and the special powers console.',
       views: ['attendance', 'attendance-register', 'att-requests', 'special-powers', 'ess-attendance', 'ess-att-requests', 'ess-calendar'] },
+    { key: 'essl', name: 'eSSL / Biometric Import', icon: '🖥️', cat: 'Time', needs: ['attendance'],
+      desc: 'Import punches from eSSL / eTimeTrackLite devices — raw device logs, spreadsheet exports or a MySQL sync — into the same punch log the policy engine and payroll read.',
+      views: ['essl'] },
     { key: 'shifts', name: 'Shift Scheduling', icon: '📅', cat: 'Time', needs: ['attendance'],
       desc: 'Shift roster and relay planning across the month.',
       views: ['shifts'] },
@@ -15311,7 +16015,7 @@ function dependentsOf(key) {
 // --- Plans: a named starting set, editable afterwards ---
 const PLANS = {
     'Starter': ['core-hr', 'ess', 'notices', 'attendance', 'leave', 'audit'],
-    'Professional': ['core-hr', 'ess', 'notices', 'workflows', 'audit', 'attendance', 'shifts', 'leave',
+    'Professional': ['core-hr', 'ess', 'notices', 'workflows', 'audit', 'attendance', 'essl', 'shifts', 'leave',
         'timesheets', 'payroll', 'statutory', 'expenses', 'documents', 'letters', 'reports', 'helpdesk'],
     'Enterprise': ALL_MODULE_KEYS.slice(),
     'Custom': null
