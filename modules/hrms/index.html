@@ -2718,6 +2718,30 @@
                 </div>
 
                 <div id="settings-carried" style="display:none;">
+                <div class="card" data-setting="backend" data-setting-title="Backend">
+                    <div class="card-header">
+                        <h3>🗄️ Backend (Supabase)</h3>
+                        <span id="backend-badge"></span>
+                    </div>
+                    <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:14px;">
+                        Without this the module keeps everything in this browser: fine to try, no good for real payroll.
+                        Point it at a Supabase project and identity, tenancy and entitlement move into Postgres, where
+                        row-level security decides what a query returns rather than the page deciding what to draw.</p>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; align-items:end;">
+                        <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Project URL</label>
+                            <input type="text" id="sb-url" placeholder="https://xxxx.supabase.co"></div>
+                        <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Anon key</label>
+                            <input type="password" id="sb-key" placeholder="the public anon key, not the service key"></div>
+                        <div style="display:flex; gap:8px;"><button class="btn btn-outline" onclick="testBackend()">Test connection</button></div>
+                    </div>
+                    <div id="sb-status" style="font-size:0.83rem; margin-top:12px;"></div>
+                    <div style="font-size:0.78rem; color:var(--text-muted); margin-top:12px; line-height:1.6;">
+                        Use the <strong>anon</strong> key. It is meant to be public — row-level security is what protects
+                        the data, not the key. Never put the service-role key in a browser: it bypasses every policy.
+                        Run the migrations in <code>supabase/migrations</code> first.</div>
+                </div>
+
+
                 <div class="card" data-setting="payroll" data-setting-title="Payroll formulas">
                     <div class="card-header">
                         <h3>Payroll components (formulas)</h3>
@@ -3866,6 +3890,7 @@
         </div>
     </div>
 
+    <script src="lib/supabase-adapter.js"></script>
     <script>
 // ==========================================
 // MAX ERP — HRMS module (standalone demo engine)
@@ -7431,13 +7456,13 @@ function renderATS() {
                 ? `<div class="kanban-empty">No candidates at this stage</div>`
                 : list.map(c => {
                     const iv = interviews.find(i => i.candidateId === c.id && i.status === 'Scheduled');
-                    const ivLine = iv ? `<br><strong style="color:var(--primary)">${iv.round} · ${prettyDate(iv.date)} ${iv.time}</strong><br>Panel: ${iv.panel} · ${iv.mode}` : '';
+                    const ivLine = iv ? `<br><strong style="color:var(--primary)">${esc(iv.round)} · ${prettyDate(iv.date)} ${esc(iv.time)}</strong><br>Panel: ${esc(iv.panel)} · ${esc(iv.mode)}` : '';
                     return `
                     <div class="kanban-card">
-                        <div style="font-weight: 600; margin-bottom: 4px;">${c.name}</div>
-                        <div class="ats-meta">${c.position} · ${c.dept}<br>Source: ${c.source} · Applied ${prettyDate(c.applied)}<br>Expected CTC: ${fmtINR(c.expectCtc)}${ivLine}</div>
+                        <div style="font-weight: 600; margin-bottom: 4px;">${esc(c.name)}</div>
+                        <div class="ats-meta">${esc(c.position)} · ${esc(c.dept)}<br>Source: ${esc(c.source)} · Applied ${prettyDate(c.applied)}<br>Expected CTC: ${fmtINR(c.expectCtc)}${ivLine}</div>
                         <div style="margin-bottom: 10px;">${scoreChip(c.score)}</div>
-                        ${c.remarks ? `<div class="ats-meta" style="font-style: italic;">“${c.remarks}”</div>` : ''}
+                        ${c.remarks ? `<div class="ats-meta" style="font-style: italic;">“${esc(c.remarks)}”</div>` : ''}
                         <div class="ats-actions">${stageActions(c)}</div>
                     </div>`;
                 }).join('');
@@ -8162,6 +8187,59 @@ const FORMULA_VAR_HELP = [
     ['PF', 'Employee provident fund this period'], ['ESIC', 'Employee ESIC this period'],
     ['PF_CEILING', 'PF wage ceiling'], ['ESIC_CEILING', 'ESIC wage ceiling']
 ];
+
+// --- Backend settings ----------------------------------------------------
+// The module runs with no backend at all and says so plainly. Pointing it at a
+// Supabase project moves identity, tenancy and entitlement into Postgres; until
+// then everything stays in this browser, which is fine to try and no good for
+// real payroll.
+function backendReady() {
+    return typeof BiscsBackend !== 'undefined' && BiscsBackend.isConfigured();
+}
+function renderBackendSettings() {
+    if (typeof BiscsBackend === 'undefined') return;
+    const c = BiscsBackend.loadConfig();
+    const u = document.getElementById('sb-url'), k = document.getElementById('sb-key');
+    if (u && document.activeElement !== u) u.value = c.url || '';
+    if (k && document.activeElement !== k) k.value = c.anonKey || '';
+    const badge = document.getElementById('backend-badge');
+    if (badge) {
+        badge.innerHTML = BiscsBackend.isLive()
+            ? '<span class="badge badge-success">Connected</span>'
+            : (BiscsBackend.isConfigured() ? '<span class="badge badge-warning">Not tested</span>'
+                                           : '<span class="badge badge-neutral">This browser only</span>');
+    }
+    const st = document.getElementById('sb-status');
+    if (st && !st.innerHTML) {
+        st.innerHTML = BiscsBackend.isConfigured()
+            ? '<span style="color:var(--text-muted)">Configured. Test the connection to confirm the migrations are in place.</span>'
+            : '<span style="color:var(--text-muted)">Running on browser storage. Everything works; nothing is shared, ' +
+              'nothing survives clearing site data, and anyone who can open the console can change it.</span>';
+    }
+}
+function testBackend() {
+    const st = document.getElementById('sb-status');
+    const set = (html, colour) => { if (st) st.innerHTML = '<span style="color:' + (colour || 'var(--secondary)') + '">' + html + '</span>'; };
+    const url = (document.getElementById('sb-url') || {}).value || '';
+    const key = (document.getElementById('sb-key') || {}).value || '';
+    if (!url.trim() || !key.trim()) return set('Enter both the project URL and the anon key.', 'var(--danger)');
+    if (/service_role/.test(key) || key.length > 500)
+        return set('<strong>That looks like the service-role key.</strong> It bypasses every row-level security policy ' +
+            'and must never be in a browser. Use the anon key.', 'var(--danger)');
+    BiscsBackend.saveConfig({ url: url.trim(), anonKey: key.trim() });
+    set('Connecting…');
+    BiscsBackend.ping().then(r => {
+        BiscsBackend.saveConfig({ enabled: true });
+        set('<strong style="color:var(--success)">Connected.</strong> The catalog has ' + r.modules +
+            ' module(s), so the migrations are in place. Accounts signing in from here are checked by Postgres.', 'var(--secondary)');
+        audit('Backend connected', url.trim(), 'System');
+        renderBackendSettings();
+    }).catch(err => {
+        BiscsBackend.saveConfig({ enabled: false });
+        set('<strong style="color:var(--danger)">' + esc(err.message) + '</strong>');
+        renderBackendSettings();
+    });
+}
 
 // --- Formula setup screens ----------------------------------------------
 function renderFormulaSetup() {
@@ -9121,7 +9199,7 @@ function populateLetterDropdown() {
     const select = document.getElementById('letter-emp-select');
     if (select) {
         select.innerHTML = '';
-        employees.forEach(emp => { select.innerHTML += `<option value="${emp.id}">${emp.name} (${emp.id})</option>`; });
+        employees.forEach(emp => { select.innerHTML += `<option value="${esc(emp.id)}">${esc(emp.name)} (${esc(emp.id)})</option>`; });
     }
 }
 // Appointment letters stay locked until HR explicitly unlocks generation.
@@ -9188,9 +9266,9 @@ function generateHRLetter() {
             </div>
             <p style="text-align: right;">Date: ${date}</p>
             <p>Ref: BISCS/APPT/2026-27/${emp.id}</p>
-            <p style="margin-top:15px;">To,<br><strong>${emp.name}</strong><br>${emp.id}</p>
+            <p style="margin-top:15px;">To,<br><strong>${esc(emp.name)}</strong><br>${emp.id}</p>
             <h3 style="text-align:center; text-decoration:underline; margin: 25px 0;">LETTER OF APPOINTMENT</h3>
-            <p>Dear ${emp.name},</p>
+            <p>Dear ${esc(emp.name)},</p>
             <p>We are pleased to confirm your appointment with BISCS India Technologies Private Limited on the terms and conditions set out below.</p>
             <table style="width:100%; border-collapse:collapse; margin:18px 0; font-size:0.9rem;">
                 <tr><td style="padding:5px 0; width:45%;"><strong>Designation</strong></td><td>${emp.role}</td></tr>
@@ -9225,7 +9303,7 @@ function generateHRLetter() {
             <div style="text-align:center; margin-bottom: 40px;"><h2>BISCS INDIA TECHNOLOGIES</h2><p>123 Tech Park, Kolkata, WB</p></div>
             <p style="text-align: right;">Date: ${date}</p>
             <h3 style="text-align:center; text-decoration:underline; margin-top: 30px; margin-bottom: 30px;">TO WHOMSOEVER IT MAY CONCERN</h3>
-            <p>This is to certify that <strong>Mr./Ms. ${emp.name}</strong> (Employee ID: ${emp.id}) is a bona fide employee of our organization.</p>
+            <p>This is to certify that <strong>Mr./Ms. ${esc(emp.name)}</strong> (Employee ID: ${emp.id}) is a bona fide employee of our organization.</p>
             <p>They are currently working with us in the capacity of <strong>${emp.role}</strong> and their employment status is ${emp.status}.</p>
             <p>This certificate is being issued upon the request of the employee for their personal reference.</p>
             <br><br><br><p>For <strong>BISCS India Technologies</strong>,</p><br><br><p>____________________</p><p><strong>Authorized Signatory</strong><br>Human Resources</p>`;
@@ -9233,7 +9311,7 @@ function generateHRLetter() {
         const newCTC = emp.ctc * 1.15;
         content = `
             <div style="text-align:center; margin-bottom: 40px;"><h2>BISCS INDIA TECHNOLOGIES</h2></div>
-            <p style="text-align: right;">Date: ${date}</p><p>Dear <strong>${emp.name}</strong>,</p>
+            <p style="text-align: right;">Date: ${date}</p><p>Dear <strong>${esc(emp.name)}</strong>,</p>
             <h3 style="text-align:center; margin-top: 20px; margin-bottom: 20px;">Subject: Compensation Revision</h3>
             <p>We are pleased to inform you that in recognition of your performance, your Annual Cost to Company (CTC) has been revised from ₹${emp.ctc.toLocaleString()} to <strong>₹${newCTC.toLocaleString()}</strong>.</p>
             <p>Your new designation will be <strong>${emp.role}</strong>.</p>
@@ -9242,7 +9320,7 @@ function generateHRLetter() {
     } else if (type === 'warning') {
         content = `
             <div style="text-align:center; margin-bottom: 40px;"><h2>BISCS INDIA TECHNOLOGIES</h2></div>
-            <p style="text-align: right;">Date: ${date}</p><p>To: <strong>${emp.name}</strong> (${emp.id})</p>
+            <p style="text-align: right;">Date: ${date}</p><p>To: <strong>${esc(emp.name)}</strong> (${emp.id})</p>
             <h3 style="text-align:center; margin-top: 20px; margin-bottom: 20px;">Subject: Official Warning Letter</h3>
             <p>This letter serves as an official warning regarding recent discrepancies in your conduct/performance.</p>
             <p>You are expected to adhere to the company's policies and improve your performance immediately. Failure to do so may result in further disciplinary action.</p>
@@ -16189,7 +16267,7 @@ function renderESSDirectory() {
     employees.forEach(emp => {
         const email = emp.name.toLowerCase().replace(' ', '.') + '@biscs.in';
         const badgeStatus = emp.status === 'Confirmed' ? 'badge-success' : 'badge-warning';
-        tbody.innerHTML += `<tr><td><strong>${emp.name}</strong></td><td>${emp.role}</td><td><a href="mailto:${email}" style="color:var(--primary); text-decoration:none;">${email}</a></td><td><span class="badge ${badgeStatus}">Active</span></td></tr>`;
+        tbody.innerHTML += `<tr><td><strong>${esc(emp.name)}</strong></td><td>${esc(emp.role)}</td><td><a href="mailto:${esc(email)}" style="color:var(--primary); text-decoration:none;">${esc(email)}</a></td><td><span class="badge ${badgeStatus}">Active</span></td></tr>`;
     });
 }
 function startCourse(btn) {
@@ -16675,6 +16753,8 @@ const SETTINGS_SECTIONS = [
       blurb: 'Who signs off what, the SLA clock, and where a breach escalates to.' },
     { key: 'devices',    name: 'Devices & eSSL',  icon: '\u{1F5A5}️', module: 'essl',
       blurb: 'The connection to the eSSL attendance database, and which device ID belongs to whom.' },
+    { key: 'backend',    name: 'Backend',         icon: '\u{1F5C4}\uFE0F', module: 'core-hr', superOnly: true,
+      blurb: 'Where the data actually lives. Without a backend everything is kept in this browser.' },
     { key: 'security',   name: 'Security',        icon: '\u{1F510}', module: 'core-hr',
       blurb: 'Your own password, the letter-generator lock and the special powers passcode.' }
 ];
@@ -16684,6 +16764,7 @@ var settingsCardsMoved = false;
 function settingsSectionFor(key) { return SETTINGS_SECTIONS.find(s => s.key === key) || null; }
 function settingsSectionVisible(sec) {
     if (!sec) return false;
+    if (sec.superOnly && (!session || session.role !== 'super')) return false;
     if (typeof canAccessModule !== 'function') return true;
     return canAccessModule(sec.module);
 }
@@ -16816,7 +16897,8 @@ function renderSettingsView() {
         expenses: () => { if (typeof renderExpensePolicy === 'function') renderExpensePolicy(); },
         approvals: () => { renderWorkflowConfig(); renderWorkflowRegister(); },
         devices: () => { renderEsslConnector(); renderEsslMapping(); },
-        security: () => { renderSettingsSecurity(); }
+        security: () => { renderSettingsSecurity(); },
+        backend: () => { renderBackendSettings(); }
     }[activeSettingsSection];
     if (fill) { try { fill(); } catch (err) { /* a panel whose module is off has nothing to fill */ } }
     const panel = document.getElementById('settings-panel-' + activeSettingsSection);

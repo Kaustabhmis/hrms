@@ -171,6 +171,28 @@ A company carries a licensed seat count. Adding an employee past it asks first
 and flags the over-count on a banner, rather than silently letting a company
 outgrow what it pays for.
 
+## Backend
+
+`supabase/` holds a PostgreSQL schema, row-level security and the module catalog
+as migrations, and `modules/hrms/lib/supabase-adapter.js` connects the module to
+it from **Settings → Backend**.
+
+The point is not storage. It is that the three gates stop being decisions the
+page makes and become decisions Postgres makes: an account that asks for another
+company's employees gets an empty list, because the database will not return
+them. Until then the module keeps everything in this browser, and says so.
+
+See `supabase/README.md` for setup, what was verified against a real PostgreSQL
+16, and what is deliberately not done yet.
+
+## Audit
+
+`docs/AUDIT.md` is an independent audit of the whole system — payroll
+arithmetic, statutory figures, data integrity, the access model, password
+handling, cross-site scripting and persistence — with the checks named so they
+can be re-run. It found and fixed five defects, including taxable earnings that
+never reached the tax calculation.
+
 ## Before you launch it
 
 This is still a front-end module. Running it inside a company needs, at minimum:
