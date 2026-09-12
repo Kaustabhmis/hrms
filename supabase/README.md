@@ -18,6 +18,7 @@ migrations/0002_rls.sql       row-level security, the three gates
 migrations/0003_modules.sql   the module catalog, generated from the module itself
 migrations/0004_auth_link.sql auth.users -> app_users, and the one-time bootstrap
 setup.sql                     all four in one paste, with a report at the end
+apply.sh                      runs setup.sql from your machine, in one command
 ```
 
 `0003` is generated from `MODULE_CATALOG` in `modules/hrms/index.html`, so the
@@ -77,6 +78,36 @@ Everything else is in place — only the convenience of auto-creating the
 `app_users` row is missing. Create accounts from **Users & Access** in the HRMS
 instead, or run that one trigger from a role with rights on the `auth` schema.
 The setup does not stop for it, because nothing else depends on it.
+
+
+### Running it from your own machine instead
+
+If you have `psql`, `./apply.sh` does the whole thing in one command:
+
+```bash
+cd supabase
+./apply.sh "postgresql://postgres:PASSWORD@db.<ref>.supabase.co:5432/postgres"
+```
+
+Leave the password out and psql prompts for it, which keeps it out of your shell
+history:
+
+```bash
+./apply.sh "postgresql://postgres@db.<ref>.supabase.co:5432/postgres"
+```
+
+> **The direct connection string is IPv6-only.** Supabase serves
+> `db.<ref>.supabase.co` over IPv6 unless you have bought the IPv4 add-on, and
+> most home and office networks are IPv4-only — so the string the dashboard
+> shows first will simply time out for many people, with an error that does not
+> say why. `apply.sh` checks for this before connecting and tells you.
+>
+> The fix is the **Session pooler** string: dashboard → **Connect** → *Session
+> pooler*, which looks like
+> `postgresql://postgres.<ref>:PASSWORD@aws-0-<region>.pooler.supabase.com:5432/postgres`
+> and is reachable over IPv4.
+>
+> Or avoid the question entirely and paste `setup.sql` into the SQL Editor.
 
 
 ### 3. Create your own login
