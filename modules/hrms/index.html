@@ -2001,7 +2001,27 @@
                         <button class="btn btn-outline" onclick="exportTds24Q(activePayrollPeriod)">⚖️ TDS 24Q (CSV)</button>
                     </div>
                 </div>
-            </section>
+                            <div class="card" id="adjust-card">
+                    <div class="card-header">
+                        <h3>Ad-hoc additions &amp; deductions</h3>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-outline" style="padding:4px 10px; font-size:0.75rem;" onclick="exportAdjustments()">⬇️ CSV</button>
+                            <button class="btn btn-primary" id="adjust-add-btn" style="padding:4px 10px; font-size:0.75rem;" onclick="openAdjustment('')">+ Add line</button>
+                        </div>
+                    </div>
+                    <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:6px;">
+                        Anything that is not a rule — an agreed incentive, a canteen recovery, a festival bonus, a fine.
+                        Lines belong to one employee for one period, so nothing rides along into next month by itself.</p>
+                    <div style="font-size:0.82rem; margin-bottom:12px;" id="adjust-summary"></div>
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>Employee</th><th>Line</th><th>Type</th><th>Amount</th><th>Taxable</th><th>Added by</th><th></th></tr></thead>
+                            <tbody id="adjust-table"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+</section>
 
             <!-- EXPENSE CLAIMS OVERVIEW -->
             <section id="view-expenses" class="view-section">
@@ -3338,6 +3358,13 @@
     </div>
 
     <!-- --- MODALS --- -->
+    <div class="modal-overlay" id="modal-adjust">
+        <div class="modal" style="max-width: 620px;">
+            <div class="modal-header"><h3 id="adj-title">Add to or deduct from this salary</h3><button class="btn btn-outline" style="padding: 4px 8px;" onclick="closeModal('modal-adjust')">✕</button></div>
+            <div class="modal-body" id="adj-body"></div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="modal-drill">
         <div class="modal" style="max-width: 1080px;">
             <div class="modal-header"><h3 id="drill-title">Details</h3><button class="btn btn-outline" style="padding: 4px 8px;" onclick="closeModal('modal-drill')">✕</button></div>
@@ -6992,7 +7019,7 @@ function runViewHooks(viewId) {
     if (viewId === 'provider-log') renderProvisioningLog();
     if (viewId === 'directory') renderDirectory();
     if (viewId === 'import') renderImportMapping();
-    if (viewId === 'payroll') { if (payrollStage === 0) initPayrollEngine(); else renderPayrollUI(); }
+    if (viewId === 'payroll') { if (payrollStage === 0) initPayrollEngine(); else renderPayrollUI(); renderAdjustments(); }
     if (viewId === 'attendance') { renderEdgeLogs(); renderAttendanceSnapshot(); renderAttendancePolicy(); renderRegularisations(); renderCompOff(); renderGeoFences(); }
     if (viewId === 'reports') renderReportCenter();
     if (viewId === 'attendance-register') { renderManualAttendance(); renderEsslRegisterLink(); }
@@ -7627,6 +7654,190 @@ function stageApplyLop() {
         row.lopAmount = Math.max(0, row.struct.grossMonthly - gross);
     });
 }
+// ==========================================================================
+// AD-HOC ADDITIONS AND DEDUCTIONS
+// Not everything that reaches a salary is a rule. An incentive agreed verbally,
+// a canteen recovery, a festival advance, a fine, a one-off allowance — payroll
+// needs somewhere to put them. These are free lines against one employee for
+// one period: HR names them, gives an amount, and says whether they belong in
+// the taxable and statutory bases or sit outside them.
+//
+// They are period-scoped on purpose. A line added for April does not repeat in
+// May, so nothing quietly rides along month after month.
+// ==========================================================================
+var payrollAdjustments = [];
+var nextAdjSeq = 1;
+
+function adjustmentsFor(empId, period) {
+    return payrollAdjustments.filter(a => a.empId === empId && a.period === period);
+}
+// What the lines come to, split by how they behave in the run.
+function adjustmentTotals(empId, period) {
+    const list = adjustmentsFor(empId, period);
+    const t = { addTaxable: 0, addNonTaxable: 0, deduct: 0, count: list.length };
+    list.forEach(a => {
+        const amt = Math.max(0, Number(a.amount) || 0);
+        if (a.kind === 'deduction') t.deduct += amt;
+        else if (a.taxable) t.addTaxable += amt;
+        else t.addNonTaxable += amt;
+    });
+    t.net = t.addTaxable + t.addNonTaxable - t.deduct;
+    return t;
+}
+function periodLocked(period) {
+    const p = payrollPeriods[period || activePayrollPeriod];
+    return !!(p && p.status === 'Executed');
+}
+
+function openAdjustment(id) {
+    if (periodLocked(activePayrollPeriod))
+        return showToast(periodMeta(activePayrollPeriod).label + ' is executed and locked. Reopen the period to change it.', 'error');
+    const a = id ? payrollAdjustments.find(x => x.id === id) : null;
+    const body = document.getElementById('adj-body');
+    if (!body) return;
+    const onRoll = employees.filter(e => !e.exitDate || e.exitDate >= activePayrollPeriod + '-01');
+    const field = (label, html, hint) => '<div><label style="display:block; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:5px;">' + label + '</label>' + html +
+        (hint ? '<div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">' + hint + '</div>' : '') + '</div>';
+    document.getElementById('adj-title').innerText = a ? 'Edit line' : 'Add to or deduct from this salary';
+    body.innerHTML =
+        '<input type="hidden" id="adj-id" value="' + (a ? esc(a.id) : '') + '">' +
+        '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:16px;">' +
+            field('Employee', '<select id="adj-emp">' + onRoll.map(e =>
+                '<option value="' + e.id + '"' + (a && a.empId === e.id ? ' selected' : '') + '>' + esc(e.name + ' (' + e.id + ')') + '</option>').join('') + '</select>') +
+            field('Add or deduct', '<select id="adj-kind" onchange="renderAdjustmentHint()">' +
+                '<option value="earning"' + (a && a.kind === 'earning' ? ' selected' : '') + '>Add to salary</option>' +
+                '<option value="deduction"' + (a && a.kind === 'deduction' ? ' selected' : '') + '>Deduct from salary</option></select>') +
+            field('What to call it', '<input type="text" id="adj-label" value="' + (a ? esc(a.label) : '') + '" placeholder="Festival bonus, canteen recovery…">',
+                'This is the wording that appears on the payslip.') +
+            field('Amount', '<input type="number" id="adj-amount" min="0" step="1" value="' + (a ? a.amount : '') + '" placeholder="0">') +
+        '</div>' +
+        '<label style="display:flex; gap:9px; align-items:flex-start; cursor:pointer; text-transform:none; font-weight:400; color:var(--text-dark); margin-bottom:14px;">' +
+            '<input type="checkbox" id="adj-taxable" style="width:16px; height:16px; margin-top:2px;"' + (!a || a.taxable ? ' checked' : '') + ' onchange="renderAdjustmentHint()">' +
+            '<span><strong style="font-size:0.85rem;">Counts as a taxable earning</strong>' +
+            '<div style="font-size:0.76rem; color:var(--text-muted);" id="adj-hint"></div></span></label>' +
+        '<div>' + field('Reason', '<textarea id="adj-reason" rows="2" placeholder="Why this line exists — it stays on the audit trail.">' + (a ? esc(a.reason || '') : '') + '</textarea>') + '</div>' +
+        '<div style="display:flex; justify-content:space-between; gap:10px; margin-top:18px;">' +
+            '<div>' + (a ? '<button class="btn btn-danger" onclick="deleteAdjustment(\'' + a.id + '\')">Delete line</button>' : '') + '</div>' +
+            '<div style="display:flex; gap:10px;">' +
+                '<button class="btn btn-outline" onclick="closeModal(\'modal-adjust\')">Cancel</button>' +
+                '<button class="btn btn-primary" onclick="saveAdjustment()">' + (a ? 'Save line' : 'Add line') + '</button>' +
+            '</div>' +
+        '</div>';
+    renderAdjustmentHint();
+    openModal('modal-adjust');
+}
+// Say plainly what the taxable tick changes, because it is the part that is
+// easy to get wrong and expensive to get wrong.
+function renderAdjustmentHint() {
+    const hint = document.getElementById('adj-hint');
+    const kindEl = document.getElementById('adj-kind');
+    const taxEl = document.getElementById('adj-taxable');
+    if (!hint || !kindEl || !taxEl) return;
+    const deduction = kindEl.value === 'deduction';
+    const wrap = taxEl.closest('label');
+    if (wrap) wrap.style.opacity = deduction ? '0.45' : '1';
+    taxEl.disabled = deduction;
+    hint.innerHTML = deduction
+        ? 'Deductions come off the net after the statutory sums are worked out, so this does not apply.'
+        : (taxEl.checked
+            ? 'Added to gross and carried into the TDS calculation. It is <strong>not</strong> a PF, ESIC or professional-tax wage — those bases are fixed by the salary structure.'
+            : 'Paid with salary but left out of taxable income, the way a reimbursement is.');
+}
+function saveAdjustment() {
+    if (periodLocked(activePayrollPeriod)) return showToast('This period is locked.', 'error');
+    const g = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    const id = g('adj-id');
+    const label = g('adj-label');
+    const amount = Math.round(Number(g('adj-amount')) || 0);
+    if (!label) return showToast('Give the line a name — it is what the employee sees on the payslip.', 'error');
+    if (amount <= 0) return showToast('Enter an amount above zero.', 'error');
+    const kind = g('adj-kind');
+    const taxEl = document.getElementById('adj-taxable');
+    const rec = {
+        id: id || ('ADJ-' + String(nextAdjSeq++).padStart(4, '0')),
+        empId: g('adj-emp'), period: activePayrollPeriod, kind: kind,
+        label: label, amount: amount,
+        taxable: kind === 'earning' ? !!(taxEl && taxEl.checked) : false,
+        reason: g('adj-reason'),
+        by: session ? session.email : 'HR', on: DEMO_TODAY
+    };
+    const existing = id ? payrollAdjustments.findIndex(a => a.id === id) : -1;
+    if (existing >= 0) payrollAdjustments[existing] = rec; else payrollAdjustments.push(rec);
+    audit(existing >= 0 ? 'Salary line changed' : 'Salary line added',
+        empName(rec.empId) + ' · ' + (rec.kind === 'deduction' ? '-' : '+') + fmtINR(rec.amount) +
+        ' · ' + rec.label + ' · ' + periodMeta(rec.period).label, 'Payroll');
+    closeModal('modal-adjust');
+    recomputeAfterAdjustment();
+    showToast(rec.label + ' — ' + (rec.kind === 'deduction' ? 'deducting ' : 'adding ') + fmtINR(rec.amount) +
+        ' for ' + empName(rec.empId) + '.', 'success');
+}
+function deleteAdjustment(id) {
+    if (periodLocked(activePayrollPeriod)) return showToast('This period is locked.', 'error');
+    const a = payrollAdjustments.find(x => x.id === id);
+    if (!a) return;
+    if (!confirm('Remove "' + a.label + '" (' + fmtINR(a.amount) + ') for ' + empName(a.empId) + '?')) return;
+    payrollAdjustments = payrollAdjustments.filter(x => x.id !== id);
+    audit('Salary line removed', empName(a.empId) + ' · ' + a.label + ' · ' + fmtINR(a.amount), 'Payroll');
+    closeModal('modal-adjust');
+    recomputeAfterAdjustment();
+    showToast('Line removed.', 'success');
+}
+// A line added part-way through a run has to reach the figures already computed.
+function recomputeAfterAdjustment() {
+    if (payrollStage >= 3) {
+        stageVariablePay();
+        if (payrollStage >= 4) stageStatutory();
+        if (payrollStage >= 5) stageValidate();
+    }
+    renderPayrollUI();
+    renderAdjustments();
+}
+
+function renderAdjustments() {
+    const tb = document.getElementById('adjust-table');
+    if (!tb) return;
+    const locked = periodLocked(activePayrollPeriod);
+    const list = payrollAdjustments.filter(a => a.period === activePayrollPeriod);
+    const btn = document.getElementById('adjust-add-btn');
+    if (btn) { btn.disabled = locked; btn.title = locked ? 'The period is executed and locked' : ''; }
+    const sum = document.getElementById('adjust-summary');
+    if (sum) {
+        const add = list.filter(a => a.kind === 'earning').reduce((t, a) => t + a.amount, 0);
+        const ded = list.filter(a => a.kind === 'deduction').reduce((t, a) => t + a.amount, 0);
+        sum.innerHTML = list.length
+            ? list.length + ' line(s) this period · <strong style="color:var(--success)">+' + fmtINR(add) +
+              '</strong> · <strong style="color:var(--danger)">−' + fmtINR(ded) + '</strong>' +
+              (locked ? ' · <span style="color:var(--text-muted)">locked</span>' : '')
+            : 'Nothing added or deducted by hand this period.';
+    }
+    tb.innerHTML = list.length
+        ? list.map(a => '<tr>' +
+            '<td><strong>' + esc(empName(a.empId)) + '</strong><br><span style="font-size:0.72rem; color:var(--text-muted)">' + esc(a.empId) + '</span></td>' +
+            '<td>' + esc(a.label) + (a.reason ? '<br><span style="font-size:0.72rem; color:var(--text-muted)">' + esc(a.reason) + '</span>' : '') + '</td>' +
+            '<td><span class="badge ' + (a.kind === 'deduction' ? 'badge-danger' : 'badge-success') + '">' +
+                (a.kind === 'deduction' ? 'Deduct' : 'Add') + '</span></td>' +
+            '<td class="currency" style="color:' + (a.kind === 'deduction' ? 'var(--danger)' : 'var(--success)') + '">' +
+                (a.kind === 'deduction' ? '−' : '+') + fmtINR(a.amount) + '</td>' +
+            '<td style="font-size:0.8rem;">' + (a.kind === 'deduction' ? '—' : (a.taxable ? 'Taxable' : 'Not taxable')) + '</td>' +
+            '<td style="font-size:0.76rem; color:var(--text-muted);">' + esc(a.by) + '<br>' + prettyDate(a.on) + '</td>' +
+            '<td>' + (locked ? '<span style="font-size:0.72rem; color:var(--text-muted)">locked</span>'
+                : '<button class="btn btn-outline" style="padding:4px 8px; font-size:0.72rem;" onclick="openAdjustment(\'' + a.id + '\')">Edit</button>') + '</td>' +
+        '</tr>').join('')
+        : '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:18px;">' +
+          'Nothing added or deducted by hand for ' + periodMeta(activePayrollPeriod).label + '.' +
+          '</td></tr>';
+}
+function exportAdjustments() {
+    const list = payrollAdjustments.filter(a => a.period === activePayrollPeriod);
+    const rows = [['Ad-hoc salary lines', periodMeta(activePayrollPeriod).label], [],
+        ['Ref', 'Employee code', 'Employee', 'Line', 'Add / deduct', 'Amount', 'Taxable', 'Reason', 'Added by', 'On']];
+    list.forEach(a => rows.push([a.id, a.empId, empName(a.empId), a.label,
+        a.kind === 'deduction' ? 'Deduct' : 'Add', a.amount,
+        a.kind === 'deduction' ? '' : (a.taxable ? 'Yes' : 'No'), a.reason, a.by, a.on]));
+    downloadRows('Salary_Adjustments_' + activePayrollPeriod + '.csv', rows);
+    showToast('Ad-hoc lines exported.', 'success');
+}
+
 function stageVariablePay() {
     currentPayrollData.forEach(row => {
         const db = domeboxBonus(row.empId);
@@ -7638,6 +7849,9 @@ function stageVariablePay() {
         row.reimbursements = reimbursementsDue(row.empId);
         row.variable.leaveEncash = encashmentDue(row.empId);
         row.variable.dutyAllowance = dutyAllowanceDue(row.empId, activePayrollPeriod);
+        // Ad-hoc lines HR added for this period, split by how they behave.
+        row.adjust = adjustmentTotals(row.empId, activePayrollPeriod);
+        row.adjustLines = adjustmentsFor(row.empId, activePayrollPeriod);
         // Overtime and late-mark deductions come from the attendance policy.
         const att = attendanceSummary(row.empId, activePayrollPeriod);
         row.variable.overtime = att.otAmount;
@@ -7677,8 +7891,14 @@ function stageStatutory() {
         // Professional Tax from the state slab on earned gross.
         row.deductions.pt = professionalTax(row.state, row.grossEarned);
 
-        // TDS on the projected annual gross including variable pay already known.
-        const projected = row.struct.grossMonthly * 12 + row.variable.bonus + row.variable.arrears;
+        // TDS on the projected annual gross including every taxable earning
+        // already known. Overtime, leave encashment, the duty allowance and any
+        // ad-hoc taxable line are all taxable pay, so leaving them out of the
+        // projection under-deducts tax and leaves the employee with a bill.
+        const adjTaxable = (row.adjust && row.adjust.addTaxable) || 0;
+        const projected = row.struct.grossMonthly * 12 + row.variable.bonus + row.variable.arrears +
+            (row.variable.overtime || 0) + (row.variable.leaveEncash || 0) +
+            (row.variable.dutyAllowance || 0) + adjTaxable;
         const tds = monthlyTDS(row.empId, projected, activePayrollPeriod);
         row.deductions.tds = tds.monthly;
         row.tdsCalc = tds;
@@ -7700,13 +7920,15 @@ function recomputeNet(row) {
     const d = row.deductions;
     // Leave encashment is a taxable earning but never a PF, ESIC or PT wage, so it
     // is added after the statutory bases have been worked out.
+    const adj = row.adjust || { addTaxable: 0, addNonTaxable: 0, deduct: 0 };
     const totalEarn = row.grossEarned + row.variable.bonus + row.variable.arrears + row.variable.overtime +
-        (row.variable.leaveEncash || 0) + (row.variable.dutyAllowance || 0);
-    const totalDed = d.pf + d.esic + d.pt + d.tds + d.loan;
-    // Reimbursements are paid with salary but are not taxable earnings.
+        (row.variable.leaveEncash || 0) + (row.variable.dutyAllowance || 0) + adj.addTaxable;
+    const totalDed = d.pf + d.esic + d.pt + d.tds + d.loan + adj.deduct;
+    // Reimbursements and non-taxable additions are paid with salary but are not
+    // taxable earnings, so they sit outside the gross the tax is worked out on.
     row.totalEarnings = totalEarn;
     row.totalDeductions = totalDed;
-    row.netPay = totalEarn - totalDed + row.reimbursements;
+    row.netPay = totalEarn - totalDed + row.reimbursements + adj.addNonTaxable;
     return row.netPay;
 }
 
@@ -8219,6 +8441,8 @@ function openPayslipModal(empId, period) {
     if (row.variable.overtime > 0) earnList.push({ name: 'Overtime', val: row.variable.overtime, ytd: row.variable.overtime });
     if (row.variable.leaveEncash > 0) earnList.push({ name: 'Leave Encashment', val: row.variable.leaveEncash, ytd: row.variable.leaveEncash });
     if (row.variable.dutyAllowance > 0) earnList.push({ name: 'Out Duty / Outstation Allowance', val: row.variable.dutyAllowance, ytd: row.variable.dutyAllowance });
+    (row.adjustLines || []).filter(a => a.kind === 'earning').forEach(a =>
+        earnList.push({ name: a.label + (a.taxable ? '' : ' (not taxable)'), val: a.amount, ytd: a.amount }));
 
     const dedList = [];
     if (row.deductions.pf > 0) dedList.push({ name: 'Provident Fund (EPF)', val: row.deductions.pf, ytd: ytdAcc.pf || row.deductions.pf });
@@ -8226,6 +8450,8 @@ function openPayslipModal(empId, period) {
     if (row.deductions.pt > 0) dedList.push({ name: 'Professional Tax (' + row.state + ')', val: row.deductions.pt, ytd: ytdAcc.pt || row.deductions.pt });
     if (row.deductions.tds > 0) dedList.push({ name: 'Income Tax (TDS)', val: row.deductions.tds, ytd: ytdAcc.tds || row.deductions.tds });
     row.loanDetail.forEach(d => dedList.push({ name: 'Loan EMI · ' + d.type, val: d.emi, ytd: d.emi }));
+    (row.adjustLines || []).filter(a => a.kind === 'deduction').forEach(a =>
+        dedList.push({ name: a.label, val: a.amount, ytd: a.amount }));
 
     const grossEarnings = earnList.reduce((a, e) => a + e.val, 0);
     const totalDeductions = dedList.reduce((a, d) => a + d.val, 0);
@@ -14663,7 +14889,7 @@ const STORE_KEY = 'biscs-hrms-state-v1';
 const PERSISTED = ['employees', 'nextEmpSeq', 'leaveLedger', 'nextLeaveSeq', 'leavePolicy', 'leaveCredits',
     'nextLeaveCreditSeq', 'leaveEncashments', 'nextLeaveEncashSeq', 'attendanceExceptions', 'taxDeclarations',
     'loans', 'nextLoanSeq', 'expenseClaims', 'nextExpenseSeq', 'travelRequests', 'nextTravelSeq', 'enpsResponses', 'salaryRevisions', 'nextRevisionSeq',
-    'payrollPeriods', 'activePayrollPeriod', 'candidates', 'interviews', 'helpdeskTickets', 'exits',
+    'payrollPeriods', 'activePayrollPeriod', 'payrollAdjustments', 'nextAdjSeq', 'candidates', 'interviews', 'helpdeskTickets', 'exits',
     'timesheets', 'nextTimesheetSeq', 'assets', 'shiftRoster', 'domeboxSync', 'ctcStructure', 'auditLog',
     'workflowInstances', 'nextWorkflowSeq', 'workflowConfig',
     'attendancePolicy', 'dailyAttendance', 'regularisations', 'nextRegSeq', 'compOffLedger', 'nextCompOffSeq',
@@ -17451,6 +17677,125 @@ function dependentsOf(key) {
     return MODULE_CATALOG.filter(m => m.needs.indexOf(key) !== -1).map(m => m.key);
 }
 
+// ==========================================================================
+// WHAT WITHHOLDING A MODULE ACTUALLY COSTS
+// Unticking a box is easy; living with it is not. Every module carries a plain
+// sentence about what stops working without it, and some combinations are
+// incoherent rather than merely reduced — payroll without attendance will pay
+// everybody a full month regardless of who turned up. Those are named before
+// the licence is saved, not discovered at the end of the month.
+// ==========================================================================
+const MODULE_IMPACT = {
+    'notices':      'No official notices can be published, and a declared holiday will not reach the calendar or move payable days.',
+    'workflows':    'Requests have no approval chain: leave, expenses and timesheets clear without anyone signing them off.',
+    'audit':        'Nothing is written to the audit trail, so an inspection has no record of who executed, approved or exported what.',
+    'attendance':   'No punches, no register, no late marks and no overtime. Payroll has no muster to read.',
+    'essl':         'Punches cannot be brought in from eSSL devices — every day has to be entered by hand.',
+    'shifts':       'No roster; everyone is assumed to be on the default shift.',
+    'timesheets':   'No project time is captured, so there is no billable value and no utilisation.',
+    'leave':        'Nobody can apply for leave, and an absence cannot be explained — it simply becomes loss of pay.',
+    'payroll':      'No salary can be run and no payslip produced.',
+    'statutory':    'No PF, ESIC, professional tax or TDS configuration, and none of the statutory returns.',
+    'loans':        'Advances cannot be recovered from salary.',
+    'expenses':     'No expense claims, and nothing is reimbursed with salary.',
+    'travel':       'No travel requests and no travel desk.',
+    'ewa':          'No access to wages already earned in the running period.',
+    'recruitment':  'No hiring pipeline, and candidates cannot be converted into employees.',
+    'performance':  'No goals, reviews, 9-box placement or recognition.',
+    'compensation': 'No increment cycle, and a back-dated salary revision cannot generate arrears.',
+    'learning':     'No course catalogue and no learning record.',
+    'engagement':   'No surveys and no eNPS.',
+    'offboarding':  'No exit clearance and no full & final settlement.',
+    'documents':    'No document centre and no e-signature routing.',
+    'letters':      'No offer, appointment or other HR letters can be generated.',
+    'assets':       'Company assets cannot be assigned, returned or recovered at exit.',
+    'helpdesk':     'No IT or HR ticketing.',
+    'benefits':     'Employees cannot see their medical cover or benefits.',
+    'analytics':    'No people analytics — headcount, cost, tenure, attrition risk and the rest.',
+    'reports':      'No report centre: no attendance or wage registers, and none of the factory returns.',
+    'intelligence': 'No DomeBox sync, flight-risk scoring or WhatsApp assistant.'
+};
+function moduleImpact(key) {
+    const m = moduleByKey(key);
+    return MODULE_IMPACT[key] || (m ? m.name + ' will not be available.' : '');
+}
+
+// Combinations that leave the system inconsistent rather than merely smaller.
+// `needs` says which module, if issued, makes the absence of `missing` a problem.
+const COHERENCE_RULES = [
+    { has: 'payroll', missing: 'attendance', level: 'danger',
+      text: 'Payroll is issued but attendance is not, so there is no muster. Every working day will be paid in full whether or not anyone turned up, and loss of pay can never arise.',
+      suggest: 'Issue Time & Attendance, or accept that this company is paying a flat monthly salary.' },
+    { has: 'payroll', missing: 'leave', level: 'danger',
+      text: 'Payroll without leave means an absence has no explanation. Days off cannot be paid leave, so they fall through as loss of pay or are simply never recorded.',
+      suggest: 'Issue Leave Management alongside payroll.' },
+    { has: 'payroll', missing: 'statutory', level: 'danger',
+      text: 'Salary will run with no PF, ESIC, professional tax or TDS deducted, and no statutory return can be filed.',
+      suggest: 'Issue Statutory & Tax unless this company genuinely has no statutory obligations.' },
+    { has: 'payroll', missing: 'audit', level: 'warn',
+      text: 'Payroll runs will be executed with nothing written to the audit trail.',
+      suggest: 'Issue Audit Trail wherever money is being paid.' },
+    { has: 'leave', missing: 'workflows', level: 'warn',
+      text: 'Leave applications have no approval chain, so they will clear themselves with nobody signing off.',
+      suggest: 'Issue Approval Workflows.' },
+    { has: 'expenses', missing: 'workflows', level: 'warn',
+      text: 'Expense claims have no approver, so any amount is approved automatically.',
+      suggest: 'Issue Approval Workflows.' },
+    { has: 'attendance', missing: 'essl', level: 'info',
+      text: 'Attendance is issued without the eSSL import, so every punch has to be typed in by hand or captured on the web clock.',
+      suggest: 'Issue eSSL / Biometric Import if this company has biometric readers.' },
+    { has: 'reports', missing: 'payroll', level: 'warn',
+      text: 'The wage registers and factory returns have no payroll behind them, so they will report that there is nothing to show.',
+      suggest: 'Issue Payroll Engine, or expect only the attendance reports to work.' },
+    { has: 'analytics', missing: 'payroll', level: 'info',
+      text: 'The payroll-cost charts in analytics will be empty.',
+      suggest: 'Issue Payroll Engine for the full analytics pack.' },
+    { has: 'offboarding', missing: 'payroll', level: 'warn',
+      text: 'Exit clearance is issued but full & final cannot be settled without payroll.',
+      suggest: 'Issue Payroll Engine.' },
+    { has: 'compensation', missing: 'payroll', level: 'warn',
+      text: 'Increments can be approved but never reach anybody: without payroll there are no arrears and no revised salary.',
+      suggest: 'Issue Payroll Engine.' },
+    { has: 'offboarding', missing: 'assets', level: 'info',
+      text: 'Exit clearance cannot check whether an employee still holds company assets.',
+      suggest: 'Issue Asset Inventory.' },
+    { has: 'attendance', missing: 'workflows', level: 'info',
+      text: 'Attendance regularisations and OD requests have no approval chain.',
+      suggest: 'Issue Approval Workflows.' }
+];
+// Given a set of module keys, what does not hang together.
+function coherenceWarnings(keys) {
+    const set = expandModules(keys || []);
+    const held = k => set.indexOf(k) !== -1;
+    return COHERENCE_RULES.filter(r => held(r.has) && !held(r.missing))
+        .map(r => Object.assign({}, r, { hasName: moduleName(r.has), missingName: moduleName(r.missing) }));
+}
+const WARN_ORDER = { danger: 0, warn: 1, info: 2 };
+function warningBlock(warnings, title, intro, fixFn) {
+    if (!warnings.length) return '';
+    warnings = warnings.slice().sort((a, b) => WARN_ORDER[a.level] - WARN_ORDER[b.level]);
+    const worst = warnings[0].level;
+    const bg = worst === 'danger' ? '#fef2f2' : worst === 'warn' ? '#fffbeb' : '#eff6ff';
+    const bd = worst === 'danger' ? '#fecaca' : worst === 'warn' ? '#fde68a' : '#bfdbfe';
+    return '<div class="card" style="background:' + bg + '; border-color:' + bd + '; margin-bottom:16px;">' +
+        '<strong style="font-size:0.88rem;">' + esc(title) + '</strong>' +
+        (intro ? '<p style="font-size:0.8rem; color:var(--text-muted); margin:4px 0 10px;">' + esc(intro) + '</p>' : '<div style="height:8px;"></div>') +
+        warnings.map(w => {
+            const dot = w.level === 'danger' ? '\u{1F534}' : w.level === 'warn' ? '\u{1F7E0}' : '\u{1F535}';
+            return '<div style="font-size:0.83rem; line-height:1.55; margin-bottom:9px;">' + dot + ' ' + esc(w.text) +
+                '<br><span style="color:var(--text-muted); font-size:0.78rem;">Suggestion: ' + esc(w.suggest) +
+                '</span> <button class="btn btn-outline" style="padding:2px 9px; font-size:0.72rem; margin-left:4px;" ' +
+                (fixFn ? 'onclick="' + fixFn + '(\'' + w.missing + '\', true)">Add ' + esc(w.missingName) + '</button>' : 'style="display:none">') + '</div>';
+        }).join('') + '</div>';
+}
+// A confirmation that names the consequences rather than asking "are you sure".
+function confirmWithWarnings(warnings, headline) {
+    if (!warnings.length) return true;
+    const ordered = warnings.slice().sort((a, b) => WARN_ORDER[a.level] - WARN_ORDER[b.level]);
+    const lines = ordered.map((w, i) => (i + 1) + '. ' + w.text + '\n   Suggestion: ' + w.suggest);
+    return confirm(headline + '\n\n' + lines.join('\n\n') + '\n\nSave it anyway?');
+}
+
 // --- Plans: a named starting set, editable afterwards ---
 const PLANS = {
     'Starter': ['core-hr', 'ess', 'notices', 'attendance', 'leave', 'audit'],
@@ -18057,6 +18402,10 @@ function renderCompanyEditor() {
                     (m.needs.length ? ' · needs ' + m.needs.map(moduleName).join(', ') : '') +
                     (why ? ' · <em>' + why + '</em>' : '') + '</div></div></label>';
             }).join('') + '</div>').join('') +
+        warningBlock(coherenceWarnings(d.modules),
+            'Before you save this licence',
+            'These are the gaps this combination leaves. None of them stops you saving — they are what the company will live with.',
+            'toggleModule') +
         '<div style="margin-top:20px;">' + field('Notes', '<textarea id="co-notes" rows="2">' + esc(d.notes || '') + '</textarea>') + '</div>' +
         '<div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">' +
             '<button class="btn btn-outline" onclick="closeModal(\'modal-company\')">Cancel</button>' +
@@ -18102,7 +18451,9 @@ function toggleModule(key, on) {
         }
         const removed = Array.from(drop).filter(k => d.modules.indexOf(k) !== -1 && k !== key);
         d.modules = expandModules(d.modules.filter(k => !drop.has(k)));
-        if (removed.length) showToast('Also removed ' + removed.map(moduleName).join(', ') + ' — they need ' + moduleName(key) + '.', 'warning');
+        showToast('Removed ' + moduleName(key) + '. ' + moduleImpact(key) +
+            (removed.length ? ' ' + removed.map(moduleName).join(' and ') + ' went with it — ' +
+                (removed.length === 1 ? 'it needs' : 'they need') + ' ' + moduleName(key) + '.' : ''), 'warning');
     }
     const set = expandModules(d.modules);
     const named = Object.keys(PLANS).find(p => PLANS[p] && PLANS[p].length === set.length &&
@@ -18118,6 +18469,9 @@ function saveCompany() {
     if (companies.some(c => c.id !== d.id && c.code === d.code)) return showToast('That short code is already in use.', 'error');
     if (d.validTill && d.activeFrom && d.validTill < d.activeFrom) return showToast('The licence cannot end before it starts.', 'error');
     d.modules = expandModules(d.modules);
+    const warn = coherenceWarnings(d.modules);
+    if (!confirmWithWarnings(warn, 'This licence for ' + d.name + ' leaves ' + warn.length +
+        ' gap(s) that will change how the system behaves:')) return;
     const existing = d.id ? companyById(d.id) : null;
     if (existing) {
         const before = expandModules(existing.modules);
@@ -18281,6 +18635,10 @@ function renderUserEditor() {
                               (note ? '<div class="mod-meta"><em>' + note + '</em></div>' : '') + '</div></label>';
                       }).join('') + '</div>';
               }).join('')) +
+        (isSuper ? '' : warningBlock(userCoherenceWarnings(d),
+            'What this account will not be able to do',
+            'Everything the company is licensed for but this account is not, and anything left inconsistent by the mix.',
+            'toggleUserModule')) +
         '<div style="display:flex; justify-content:space-between; gap:10px; margin-top:22px; flex-wrap:wrap;">' +
             '<div>' + (d.id && d.email !== SUPER_EMAIL ? '<button class="btn btn-danger" onclick="deleteUser()">Delete account</button>' : '') + '</div>' +
             '<div style="display:flex; gap:10px;">' +
@@ -18304,6 +18662,33 @@ function captureUserFields() {
 function onUserRoleChange(role) { captureUserFields(); userDraft.role = role; if (role === 'super') userDraft.companyId = ''; renderUserEditor(); }
 function onUserCompanyChange(id) { captureUserFields(); userDraft.companyId = id; userDraft.empId = ''; renderUserEditor(); }
 function toggleUserAllModules(on) { captureUserFields(); userDraft.allModules = on; renderUserEditor(); }
+// The same gaps, told from the point of view of the person holding the account.
+function userCoherenceWarnings(d) {
+    const lic = d.role === 'super' ? ALL_MODULE_KEYS.slice() : licensedModules(d.companyId);
+    const granted = (d.role === 'super' || d.allModules) ? lic
+        : expandModules(d.modules || []).filter(k => lic.indexOf(k) !== -1);
+    const who = d.role === 'employee' ? 'This employee' : d.role === 'manager' ? 'This manager' : 'This account';
+    const out = [];
+    // Anything the company holds but this account does not.
+    const withheld = lic.filter(k => granted.indexOf(k) === -1 && !moduleByKey(k).core);
+    withheld.forEach(k => out.push({ level: 'info', missing: k, missingName: moduleName(k),
+        text: who + ' will not see ' + moduleName(k) + '. ' + moduleImpact(k),
+        suggest: 'Tick it if they need it — the company is already licensed for it.' }));
+    // Combinations that leave this account's own screens inconsistent.
+    coherenceWarnings(granted).forEach(w => {
+        if (lic.indexOf(w.missing) === -1) return;   // the company does not hold it either
+        out.push(Object.assign({}, w, { text: who + ' holds ' + w.hasName + ' without ' + w.missingName + '. ' + w.text }));
+    });
+    if (d.role === 'employee' && granted.indexOf('leave') === -1 && lic.indexOf('leave') !== -1)
+        out.push({ level: 'warn', missing: 'leave', missingName: 'Leave Management',
+            text: who + ' cannot apply for leave at all, so any day off will be recorded as an unexplained absence.',
+            suggest: 'Employees almost always need Leave Management.' });
+    if (d.role === 'employee' && granted.indexOf('attendance') === -1 && lic.indexOf('attendance') !== -1)
+        out.push({ level: 'warn', missing: 'attendance', missingName: 'Time & Attendance',
+            text: who + ' cannot clock in or out, or see their own attendance.',
+            suggest: 'Employees expected to mark attendance need this.' });
+    return out;
+}
 function toggleUserModule(key, on) {
     captureUserFields();
     const d = userDraft;
@@ -18315,7 +18700,10 @@ function toggleUserModule(key, on) {
             changed = false;
             Array.from(drop).forEach(k => dependentsOf(k).forEach(dep => { if (!drop.has(dep)) { drop.add(dep); changed = true; } }));
         }
+        const also = Array.from(drop).filter(k => k !== key && d.modules.indexOf(k) !== -1);
         d.modules = expandModules(d.modules.filter(k => !drop.has(k)));
+        showToast('Removed ' + moduleName(key) + '. ' + moduleImpact(key) +
+            (also.length ? ' ' + also.map(moduleName).join(' and ') + ' went with it.' : ''), 'warning');
     }
     renderUserEditor();
 }
@@ -18333,6 +18721,10 @@ function saveUser() {
     }
     const existing = d.id ? appUsers.find(u => u.id === d.id) : null;
     if (!existing && !d.newPassword) return showToast('Set a password for the new account.', 'error');
+    if (d.role !== 'super' && !d.allModules) {
+        const warn = userCoherenceWarnings(d).filter(w => w.level !== 'info');
+        if (!confirmWithWarnings(warn, 'This access for ' + d.email + ' leaves ' + warn.length + ' gap(s):')) return;
+    }
     if (existing && existing.email === SUPER_EMAIL && (d.role !== 'super' || d.status !== 'Active'))
         return showToast('The owner account has to stay an active provider account.', 'error');
 

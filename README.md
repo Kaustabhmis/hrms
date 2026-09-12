@@ -401,6 +401,51 @@ the documented relief.
   revisions, loans, leave, expenses, recognition, feedback, 1-on-1s, assets,
   payroll runs, requests and exit.
 
+## Choosing modules, and being told what it costs
+
+Access is chosen in two places — the company licence (**Companies → Issue
+modules**) and the individual account (**Users & Access**). Unticking is easy;
+living with it is not, so the consequences are named before anything is saved.
+
+- **Every module carries a plain sentence** about what stops working without it.
+  Unticking one says so immediately, along with anything that went with it.
+- **Some combinations are incoherent rather than merely smaller.** Payroll
+  without attendance has no muster, so every working day is paid in full whether
+  or not anyone turned up, and loss of pay can never arise. Payroll without
+  leave leaves an absence with no explanation. Payroll without statutory runs
+  salary with no PF, ESIC, PT or TDS. Leave or expenses without approval
+  workflows clear themselves with nobody signing off. Thirteen such rules are
+  checked, each with a suggestion and a one-click fix.
+- **Saving does not ask "are you sure".** It lists the gaps, in plain words,
+  and lets you save anyway if that is genuinely what you want.
+- **On an account, the same gaps are told from that person's point of view** —
+  "This employee cannot apply for leave at all, so any day off will be recorded
+  as an unexplained absence" — including the modules the company holds that this
+  account has not been given.
+
+## Ad-hoc additions and deductions
+
+Not everything that reaches a salary is a rule. **Payroll → Ad-hoc additions &
+deductions** takes free lines against one employee for one period: an agreed
+incentive, a canteen recovery, a festival bonus, a fine.
+
+Each line is named by HR, and that name is what appears on the payslip — nothing
+is folded into a lump the employee cannot account for. An addition can be marked
+**taxable**, in which case it joins the gross and the TDS projection, or not, in
+which case it is paid with salary the way a reimbursement is and left out of
+taxable income. PF, ESIC and professional tax bases are **not** moved by these
+lines: those are fixed by the salary structure.
+
+Lines are scoped to one period, so nothing rides along into next month by
+itself, and the period locks them once it is executed — reopen it to change
+them. Every line carries a reason and lands on the audit trail.
+
+> While adding this, a longer-standing gap came out: the TDS projection was
+> built from the salary structure plus bonus and arrears only, so **overtime,
+> leave encashment and the out-duty allowance were taxable earnings that never
+> reached the tax calculation** — an under-deduction that would have left the
+> employee with a bill. The projection now includes every taxable earning.
+
 ## Report Center
 
 Eighteen reports across four categories, each one definition — name, what it
