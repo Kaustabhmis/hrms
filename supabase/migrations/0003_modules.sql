@@ -3,7 +3,10 @@
 -- Generated from MODULE_CATALOG in modules/hrms/index.html so the database and
 -- the browser cannot disagree about what a module is or what it needs.
 -- ============================================================================
-delete from module_requires; delete from modules;
+-- Upsert, never delete-and-recreate. company_modules references modules with
+-- on delete cascade, so a "delete from modules" here would silently unlicense
+-- every company on the installation — a migration that is safe the first time
+-- and catastrophic the second.
 insert into modules(key,name,category,icon,is_core,sort,impact) values
   ('core-hr','Core HR & Org','Foundation','👥',true,0,null),
   ('ess','Employee Self-Service','Foundation','📱',true,10,null),
@@ -34,7 +37,13 @@ insert into modules(key,name,category,icon,is_core,sort,impact) values
   ('benefits','Benefits & GMC','Workplace','🏥',false,260,'Employees cannot see their medical cover or benefits.'),
   ('analytics','People Analytics','Analytics & Insight','📊',false,270,'No people analytics — headcount, cost, tenure, attrition risk and the rest.'),
   ('reports','Report Center','Analytics & Insight','📈',false,280,'No report centre: no attendance or wage registers, and none of the factory returns.'),
-  ('intelligence','AI & Integrations','Analytics & Insight','🧠',false,290,'No DomeBox sync, flight-risk scoring or WhatsApp assistant.');
+  ('intelligence','AI & Integrations','Analytics & Insight','🧠',false,290,'No DomeBox sync, flight-risk scoring or WhatsApp assistant.')
+on conflict (key) do update set
+    name = excluded.name, category = excluded.category, icon = excluded.icon,
+    is_core = excluded.is_core, sort = excluded.sort, impact = excluded.impact;
+
+-- Dependencies are replaced wholesale, which is safe: nothing references them.
+delete from module_requires;
 insert into module_requires(module_key,requires_key) values
   ('recruitment','core-hr'),
   ('letters','core-hr'),
@@ -55,7 +64,8 @@ insert into module_requires(module_key,requires_key) values
   ('engagement','ess'),
   ('offboarding','core-hr'),
   ('helpdesk','ess'),
-  ('benefits','ess');
+  ('benefits','ess')
+on conflict do nothing;
 
 -- Resolving a licence: everything asked for, plus whatever those need, plus the
 -- core. Written once when a licence is saved so has_module() stays a lookup.

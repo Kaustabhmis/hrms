@@ -127,9 +127,11 @@ begin
     loop
         execute format('alter table %I enable row level security', t);
         execute format('alter table %I force row level security', t);
+        execute format('drop policy if exists %I_control_read on %I', t, t);
         execute format($f$
             create policy %I_control_read on %I for select
             using (is_super() or (is_control() and company_id = my_company()))$f$, t, t);
+        execute format('drop policy if exists %I_control_write on %I', t, t);
         execute format($f$
             create policy %I_control_write on %I for all
             using (is_super() or (is_control() and company_id = my_company()))
@@ -143,9 +145,11 @@ begin
     loop
         execute format('alter table %I enable row level security', t);
         execute format('alter table %I force row level security', t);
+        execute format('drop policy if exists %I_company_read on %I', t, t);
         execute format($f$
             create policy %I_company_read on %I for select
             using (is_super() or company_id = my_company())$f$, t, t);
+        execute format('drop policy if exists %I_control_write on %I', t, t);
         execute format($f$
             create policy %I_control_write on %I for all
             using (is_super() or (is_control() and company_id = my_company()))
@@ -155,34 +159,46 @@ end $$;
 
 -- ------------------------------------------------------ what an employee may --
 -- Self-service: an employee reads and writes their own rows and nobody else's.
+drop policy if exists punch_self on punch_log;
 create policy punch_self on punch_log for select
     using (employee_id = my_employee());
+drop policy if exists punch_self_insert on punch_log;
 create policy punch_self_insert on punch_log for insert
     with check (employee_id = my_employee() and company_id = my_company() and has_module('attendance'));
 
+drop policy if exists daily_self on daily_attendance;
 create policy daily_self on daily_attendance for select using (employee_id = my_employee());
 
+drop policy if exists leave_self_read on leave_ledger;
 create policy leave_self_read on leave_ledger for select using (employee_id = my_employee());
+drop policy if exists leave_self_apply on leave_ledger;
 create policy leave_self_apply on leave_ledger for insert
     with check (employee_id = my_employee() and company_id = my_company()
                 and has_module('leave') and status = 'Pending');
 -- A pending application of their own may be withdrawn; an approved one may not.
+drop policy if exists leave_self_withdraw on leave_ledger;
 create policy leave_self_withdraw on leave_ledger for delete
     using (employee_id = my_employee() and status = 'Pending');
 
+drop policy if exists expense_self_read on expense_claims;
 create policy expense_self_read on expense_claims for select using (employee_id = my_employee());
+drop policy if exists expense_self_raise on expense_claims;
 create policy expense_self_raise on expense_claims for insert
     with check (employee_id = my_employee() and company_id = my_company()
                 and has_module('expenses') and status = 'Pending');
 
+drop policy if exists travel_self_read on travel_requests;
 create policy travel_self_read on travel_requests for select using (employee_id = my_employee());
+drop policy if exists travel_self_raise on travel_requests;
 create policy travel_self_raise on travel_requests for insert
     with check (employee_id = my_employee() and company_id = my_company()
                 and has_module('travel') and status = 'Pending');
 
+drop policy if exists loans_self_read on loans;
 create policy loans_self_read on loans for select using (employee_id = my_employee());
 
 -- Their own payslip, and only once the period has actually been executed.
+drop policy if exists payroll_rows_self on payroll_rows;
 create policy payroll_rows_self on payroll_rows for select
     using (employee_id = my_employee() and has_module('payroll')
            and period_is_executed(period_id));
@@ -190,19 +206,24 @@ create policy payroll_rows_self on payroll_rows for select
 -- An employee reads their own record, their manager's, and their team's.
 -- Everyone else's is simply not there — including the salary columns, which is
 -- why this is a table policy rather than a filter in the application.
+drop policy if exists employees_self on employees;
 create policy employees_self on employees for select
     using (id = my_employee() or manager_id = my_employee() or id = my_manager());
 
 -- A colleague directory without pay: this is what the peer directory reads.
-create or replace view directory_v with (security_invoker = true) as
+drop view if exists directory_v;
+create view directory_v with (security_invoker = true) as
     select id, company_id, code, name, designation, dept, location, email
     from employees;
 
 -- An approver sees their own team's requests.
+drop policy if exists leave_team on leave_ledger;
 create policy leave_team on leave_ledger for select
     using (is_approver() and employee_id in (select my_team()));
+drop policy if exists expense_team on expense_claims;
 create policy expense_team on expense_claims for select
     using (is_approver() and employee_id in (select my_team()));
+drop policy if exists workflow_team on workflow_instances;
 create policy workflow_team on workflow_instances for select
     using (is_approver() and employee_id in (select my_team()));
 
@@ -216,42 +237,55 @@ alter table companies force row level security;
 alter table app_users force row level security;
 
 -- A company row is visible to the provider, and to its own people.
+drop policy if exists company_read on companies;
 create policy company_read on companies for select
     using (is_super() or id = my_company());
+drop policy if exists company_write on companies;
 create policy company_write on companies for all
     using (is_super()) with check (is_super());
 
 -- An account sees itself; HR sees its company's accounts; the provider sees all.
+drop policy if exists users_read on app_users;
 create policy users_read on app_users for select
     using (is_super() or id = auth.uid() or (is_control() and company_id = my_company()));
+drop policy if exists users_write on app_users;
 create policy users_write on app_users for all
     using (is_super() or (is_control() and company_id = my_company()))
     with check (is_super() or (is_control() and company_id = my_company()));
 
+drop policy if exists company_modules_read on company_modules;
 create policy company_modules_read on company_modules for select
     using (is_super() or company_id = my_company());
 -- Only the provider issues modules. HR cannot widen its own licence.
+drop policy if exists company_modules_write on company_modules;
 create policy company_modules_write on company_modules for all
     using (is_super()) with check (is_super());
 
+drop policy if exists user_modules_read on user_modules;
 create policy user_modules_read on user_modules for select
     using (is_super() or user_id = auth.uid()
            or (is_control() and user_id in (select id from app_users where company_id = my_company())));
+drop policy if exists user_modules_write on user_modules;
 create policy user_modules_write on user_modules for all
     using (is_super() or (is_control() and user_id in (select id from app_users where company_id = my_company())))
     with check (is_super() or (is_control() and user_id in (select id from app_users where company_id = my_company())));
 
+drop policy if exists prov_log_read on provisioning_log;
 create policy prov_log_read on provisioning_log for select using (is_super());
+drop policy if exists prov_log_write on provisioning_log;
 create policy prov_log_write on provisioning_log for insert with check (true);
 
 -- The catalog is readable by anyone signed in; it is changed by migration.
 alter table modules enable row level security;
 alter table module_requires enable row level security;
+drop policy if exists modules_read on modules;
 create policy modules_read on modules for select using (true);
+drop policy if exists module_requires_read on module_requires;
 create policy module_requires_read on module_requires for select using (true);
 
 -- ------------------------------------------------------------ append-only --
 -- Evidence. Insert freely; history cannot be rewritten by the application.
+drop policy if exists audit_insert on audit_log;
 create policy audit_insert on audit_log for insert
     with check (company_id = my_company() or is_super());
 revoke update, delete on audit_log from public;
@@ -273,6 +307,7 @@ begin
     end if;
     return new;
 end $$;
+drop trigger if exists payroll_rows_locked on payroll_rows;
 create trigger payroll_rows_locked
     before insert or update or delete on payroll_rows
     for each row execute function guard_executed_payroll();

@@ -13,7 +13,7 @@
 create extension if not exists "pgcrypto";
 
 -- ---------------------------------------------------------------- provider --
-create table companies (
+create table if not exists companies (
     id           uuid primary key default gen_random_uuid(),
     name         text        not null,
     code         text        not null unique,
@@ -31,7 +31,7 @@ create table companies (
 );
 
 -- The catalog is data, not code, so a module can be added without a deploy.
-create table modules (
+create table if not exists modules (
     key       text primary key,
     name      text not null,
     category  text not null,
@@ -40,13 +40,13 @@ create table modules (
     sort      integer not null default 0,
     impact    text
 );
-create table module_requires (
+create table if not exists module_requires (
     module_key   text not null references modules(key) on delete cascade,
     requires_key text not null references modules(key) on delete cascade,
     primary key (module_key, requires_key),
     check (module_key <> requires_key)
 );
-create table company_modules (
+create table if not exists company_modules (
     company_id uuid not null references companies(id) on delete cascade,
     module_key text not null references modules(key)  on delete cascade,
     primary key (company_id, module_key)
@@ -54,7 +54,7 @@ create table company_modules (
 
 -- app_users mirrors auth.users. The id IS the Supabase auth uid, so a JWT maps
 -- straight onto a row without a lookup table in between.
-create table app_users (
+create table if not exists app_users (
     id           uuid primary key,
     email        citext      not null unique,
     name         text        not null,
@@ -70,14 +70,14 @@ create table app_users (
     constraint provider_has_no_company check (
         (role = 'super' and company_id is null) or (role <> 'super' and company_id is not null))
 );
-create table user_modules (
+create table if not exists user_modules (
     user_id    uuid not null references app_users(id) on delete cascade,
     module_key text not null references modules(key)  on delete cascade,
     primary key (user_id, module_key)
 );
 
 -- ------------------------------------------------------------------ people --
-create table employees (
+create table if not exists employees (
     id           uuid primary key default gen_random_uuid(),
     company_id   uuid not null references companies(id) on delete cascade,
     code         text not null,
@@ -102,13 +102,15 @@ create table employees (
     constraint not_own_manager check (manager_id is null or manager_id <> id),
     constraint left_after_joining check (exit_date is null or doj is null or exit_date >= doj)
 );
-alter table app_users add constraint app_users_employee_fk
-    foreign key (employee_id) references employees(id) on delete set null;
-create index on employees (company_id, dept);
-create index on employees (company_id, manager_id);
+do $$ begin
+    alter table app_users add constraint app_users_employee_fk
+        foreign key (employee_id) references employees(id) on delete set null;
+exception when duplicate_object then null; end $$;
+create index if not exists idx_employees_company_id_dept on employees (company_id, dept);
+create index if not exists idx_employees_company_id_manager_id on employees (company_id, manager_id);
 
 -- -------------------------------------------------------------- attendance --
-create table punch_log (
+create table if not exists punch_log (
     id          uuid primary key default gen_random_uuid(),
     company_id  uuid not null references companies(id) on delete cascade,
     employee_id uuid not null references employees(id) on delete cascade,
@@ -127,9 +129,9 @@ create table punch_log (
     -- twice, which is what makes re-importing an eSSL export safe.
     unique (employee_id, punch_date, punch_time, direction)
 );
-create index on punch_log (company_id, punch_date);
+create index if not exists idx_punch_log_company_id_punch_date on punch_log (company_id, punch_date);
 
-create table daily_attendance (
+create table if not exists daily_attendance (
     company_id  uuid not null references companies(id) on delete cascade,
     employee_id uuid not null references employees(id) on delete cascade,
     work_date   date not null,
@@ -139,7 +141,7 @@ create table daily_attendance (
     punches     integer not null default 0,
     primary key (employee_id, work_date)
 );
-create table attendance_marks (          -- HR overrides
+create table if not exists attendance_marks (          -- HR overrides
     company_id  uuid not null references companies(id) on delete cascade,
     employee_id uuid not null references employees(id) on delete cascade,
     work_date   date not null,
@@ -150,7 +152,7 @@ create table attendance_marks (          -- HR overrides
 );
 
 -- ------------------------------------------------------------------- leave --
-create table leave_types (
+create table if not exists leave_types (
     id           uuid primary key default gen_random_uuid(),
     company_id   uuid not null references companies(id) on delete cascade,
     code         text not null,
@@ -161,7 +163,7 @@ create table leave_types (
     rules        jsonb not null default '{}'::jsonb,
     unique (company_id, code)
 );
-create table leave_ledger (
+create table if not exists leave_ledger (
     id           uuid primary key default gen_random_uuid(),
     company_id   uuid not null references companies(id) on delete cascade,
     employee_id  uuid not null references employees(id) on delete cascade,
@@ -173,7 +175,7 @@ create table leave_ledger (
     created_at   timestamptz not null default now(),
     constraint leave_dates check (to_date >= from_date)
 );
-create table leave_credits (
+create table if not exists leave_credits (
     id          uuid primary key default gen_random_uuid(),
     company_id  uuid not null references companies(id) on delete cascade,
     employee_id uuid not null references employees(id) on delete cascade,
@@ -185,7 +187,7 @@ create table leave_credits (
 );
 
 -- ----------------------------------------------------------------- payroll --
-create table payroll_periods (
+create table if not exists payroll_periods (
     id           uuid primary key default gen_random_uuid(),
     company_id   uuid not null references companies(id) on delete cascade,
     period       text not null,              -- YYYY-MM
@@ -196,7 +198,7 @@ create table payroll_periods (
     config_snapshot jsonb,
     unique (company_id, period)
 );
-create table payroll_rows (
+create table if not exists payroll_rows (
     id            uuid primary key default gen_random_uuid(),
     period_id     uuid not null references payroll_periods(id) on delete cascade,
     company_id    uuid not null references companies(id) on delete cascade,
@@ -212,10 +214,10 @@ create table payroll_rows (
     detail        jsonb not null default '{}'::jsonb,
     unique (period_id, employee_id)
 );
-create index on payroll_rows (company_id, employee_id);
+create index if not exists idx_payroll_rows_company_id_employee_id on payroll_rows (company_id, employee_id);
 
 -- Free lines HR adds for one person for one period.
-create table payroll_adjustments (
+create table if not exists payroll_adjustments (
     id          uuid primary key default gen_random_uuid(),
     company_id  uuid not null references companies(id) on delete cascade,
     employee_id uuid not null references employees(id) on delete cascade,
@@ -227,9 +229,9 @@ create table payroll_adjustments (
     reason      text,
     created_by  text, created_at timestamptz not null default now()
 );
-create index on payroll_adjustments (company_id, period);
+create index if not exists idx_payroll_adjustments_company_id_period on payroll_adjustments (company_id, period);
 
-create table formula_components (
+create table if not exists formula_components (
     id         uuid primary key default gen_random_uuid(),
     company_id uuid not null references companies(id) on delete cascade,
     name       text not null,
@@ -240,14 +242,14 @@ create table formula_components (
     scope      text not null default 'all' check (scope in ('all','dept','employee')),
     target     text, notes text
 );
-create table pt_formulas (
+create table if not exists pt_formulas (
     company_id uuid not null references companies(id) on delete cascade,
     state      text not null,
     expr       text not null,
     primary key (company_id, state)
 );
 
-create table loans (
+create table if not exists loans (
     id          uuid primary key default gen_random_uuid(),
     company_id  uuid not null references companies(id) on delete cascade,
     employee_id uuid not null references employees(id) on delete cascade,
@@ -259,7 +261,7 @@ create table loans (
     status      text not null default 'Active',
     recovered   numeric(14,2) not null default 0
 );
-create table expense_claims (
+create table if not exists expense_claims (
     id          uuid primary key default gen_random_uuid(),
     company_id  uuid not null references companies(id) on delete cascade,
     employee_id uuid not null references employees(id) on delete cascade,
@@ -269,7 +271,7 @@ create table expense_claims (
     status      text not null default 'Pending',
     note        text
 );
-create table travel_requests (
+create table if not exists travel_requests (
     id          uuid primary key default gen_random_uuid(),
     company_id  uuid not null references companies(id) on delete cascade,
     employee_id uuid not null references employees(id) on delete cascade,
@@ -283,7 +285,7 @@ create table travel_requests (
 );
 
 -- --------------------------------------------------------------- workflows --
-create table workflow_instances (
+create table if not exists workflow_instances (
     id          uuid primary key default gen_random_uuid(),
     company_id  uuid not null references companies(id) on delete cascade,
     wf_type     text not null,
@@ -299,13 +301,13 @@ create table workflow_instances (
 );
 
 -- ------------------------------------------------------------------- eSSL --
-create table essl_device_map (
+create table if not exists essl_device_map (
     company_id     uuid not null references companies(id) on delete cascade,
     device_user_id text not null,
     employee_id    uuid not null references employees(id) on delete cascade,
     primary key (company_id, device_user_id)
 );
-create table essl_batches (
+create table if not exists essl_batches (
     id           uuid primary key default gen_random_uuid(),
     company_id   uuid not null references companies(id) on delete cascade,
     source       text not null,
@@ -318,16 +320,16 @@ create table essl_batches (
 -- ------------------------------------------------------------- append-only --
 -- Both logs are evidence. Writes are allowed; changing history is not, and
 -- 0002 revokes update and delete on them from every application role.
-create table audit_log (
+create table if not exists audit_log (
     id         bigserial primary key,
     company_id uuid references companies(id) on delete cascade,
     at         timestamptz not null default now(),
     actor      text, actor_role text,
     category   text, action text not null, detail text
 );
-create index on audit_log (company_id, at desc);
+create index if not exists idx_audit_log_company_id_at_desc on audit_log (company_id, at desc);
 
-create table provisioning_log (
+create table if not exists provisioning_log (
     id       bigserial primary key,
     at       timestamptz not null default now(),
     actor    text,
