@@ -2718,6 +2718,39 @@
                 </div>
 
                 <div id="settings-carried" style="display:none;">
+                <div class="card" data-setting="payroll" data-setting-title="Payroll formulas">
+                    <div class="card-header">
+                        <h3>Payroll components (formulas)</h3>
+                        <button class="btn btn-primary" style="padding:4px 10px; font-size:0.75rem;" onclick="openFormulaComponent('')">+ New component</button>
+                    </div>
+                    <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:12px;">
+                        For anything the CTC structure cannot express — a shift allowance, an attendance incentive,
+                        a recurring recovery. A component applies to everyone, one department or one person, every
+                        period, and is checked against real employees as you write it.</p>
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>Component</th><th>Type</th><th>Formula</th><th>Applies to</th><th>Preview</th><th>State</th><th></th></tr></thead>
+                            <tbody id="formula-comp-table"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card" data-setting="payroll" data-setting-title="Professional tax formulas">
+                    <div class="card-header"><h3>Professional tax</h3></div>
+                    <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:6px;">
+                        Each state's rule, written as a formula rather than buried in code, so it can be changed when
+                        the state changes it. The defaults are generated from the shipped slabs, so nothing moved when
+                        this was converted.</p>
+                    <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:12px;" id="pt-formula-note"></div>
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>State</th><th>Formula</th><th>At 9k / 14k / 20k / 30k / 50k</th><th>Valid</th><th></th></tr></thead>
+                            <tbody id="pt-formula-table"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+
 <div class="card" data-setting="org" data-setting-title="Vertical architecture" style="max-width: 600px;">
                     <h3>Multi-Vertical Architecture Config</h3>
                     <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;">The OS dynamically adapts its algorithms based on your operating mode.</p>
@@ -3358,6 +3391,13 @@
     </div>
 
     <!-- --- MODALS --- -->
+    <div class="modal-overlay" id="modal-formula">
+        <div class="modal" style="max-width: 720px;">
+            <div class="modal-header"><h3 id="formula-title">New payroll component</h3><button class="btn btn-outline" style="padding: 4px 8px;" onclick="closeModal('modal-formula')">✕</button></div>
+            <div class="modal-body" id="formula-body"></div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="modal-adjust">
         <div class="modal" style="max-width: 620px;">
             <div class="modal-header"><h3 id="adj-title">Add to or deduct from this salary</h3><button class="btn btn-outline" style="padding: 4px 8px;" onclick="closeModal('modal-adjust')">✕</button></div>
@@ -7852,6 +7892,7 @@ function stageVariablePay() {
         // Ad-hoc lines HR added for this period, split by how they behave.
         row.adjust = adjustmentTotals(row.empId, activePayrollPeriod);
         row.adjustLines = adjustmentsFor(row.empId, activePayrollPeriod);
+        runFormulaComponents(row);
         // Overtime and late-mark deductions come from the attendance policy.
         const att = attendanceSummary(row.empId, activePayrollPeriod);
         row.variable.overtime = att.otAmount;
@@ -7895,7 +7936,8 @@ function stageStatutory() {
         // already known. Overtime, leave encashment, the duty allowance and any
         // ad-hoc taxable line are all taxable pay, so leaving them out of the
         // projection under-deducts tax and leaves the employee with a bill.
-        const adjTaxable = (row.adjust && row.adjust.addTaxable) || 0;
+        const adjTaxable = ((row.adjust && row.adjust.addTaxable) || 0) +
+            ((row.formulaTotals && row.formulaTotals.addTaxable) || 0);
         const projected = row.struct.grossMonthly * 12 + row.variable.bonus + row.variable.arrears +
             (row.variable.overtime || 0) + (row.variable.leaveEncash || 0) +
             (row.variable.dutyAllowance || 0) + adjTaxable;
@@ -7911,24 +7953,493 @@ function stageStatutory() {
         recomputeNet(row);
     });
 }
-function professionalTax(state, gross) {
+// ==========================================================================
+// FORMULA ENGINE
+// Payroll components that cannot be expressed as "% of basic" need somewhere to
+// go, and a statutory slab is a formula whether or not it is written as one.
+// So HR can write the rule down: named variables, arithmetic, comparisons, a
+// handful of functions and a SLAB() for stepped rates.
+//
+// It is NOT eval(). The expression is tokenised, converted to postfix and
+// evaluated over a fixed variable set, so a formula can only ever produce a
+// number — it cannot reach the DOM, the network or any state it was not given.
+// ==========================================================================
+const FORMULA_FUNCS = {
+    MIN: { args: -1, fn: a => Math.min.apply(null, a) },
+    MAX: { args: -1, fn: a => Math.max.apply(null, a) },
+    ROUND: { args: -1, fn: a => { const p = a.length > 1 ? a[1] : 0; const m = Math.pow(10, p); return Math.round(a[0] * m) / m; } },
+    FLOOR: { args: 1, fn: a => Math.floor(a[0]) },
+    CEIL: { args: 1, fn: a => Math.ceil(a[0]) },
+    ABS: { args: 1, fn: a => Math.abs(a[0]) },
+    IF: { args: 3, fn: a => (a[0] ? a[1] : a[2]) },
+    // SLAB(value, limit1, amount1, limit2, amount2, …, finalAmount)
+    // The first limit the value falls at or below decides the amount; anything
+    // past every limit takes the last figure. This is how a professional-tax
+    // table is actually written, so it is written that way here too.
+    SLAB: { args: -1, fn: a => {
+        const v = a[0];
+        for (let i = 1; i + 1 < a.length; i += 2) if (v <= a[i]) return a[i + 1];
+        return a.length % 2 === 0 ? a[a.length - 1] : 0;
+    } },
+    PRORATE: { args: 3, fn: a => (a[2] ? (a[0] * a[1]) / a[2] : 0) }
+};
+const FORMULA_OPS = {
+    '+': { p: 1, fn: (x, y) => x + y }, '-': { p: 1, fn: (x, y) => x - y },
+    '*': { p: 2, fn: (x, y) => x * y }, '/': { p: 2, fn: (x, y) => (y === 0 ? 0 : x / y) },
+    '%': { p: 2, fn: (x, y) => (y === 0 ? 0 : x % y) },
+    '<': { p: 0, fn: (x, y) => (x < y ? 1 : 0) }, '>': { p: 0, fn: (x, y) => (x > y ? 1 : 0) },
+    '<=': { p: 0, fn: (x, y) => (x <= y ? 1 : 0) }, '>=': { p: 0, fn: (x, y) => (x >= y ? 1 : 0) },
+    '==': { p: 0, fn: (x, y) => (x === y ? 1 : 0) }, '!=': { p: 0, fn: (x, y) => (x !== y ? 1 : 0) },
+    '&&': { p: -1, fn: (x, y) => (x && y ? 1 : 0) }, '||': { p: -1, fn: (x, y) => (x || y ? 1 : 0) }
+};
+function tokenizeFormula(src) {
+    const out = [];
+    let i = 0;
+    const s = String(src || '');
+    while (i < s.length) {
+        const c = s[i];
+        if (/\s/.test(c)) { i++; continue; }
+        if (/[0-9.]/.test(c)) {
+            let j = i; while (j < s.length && /[0-9._]/.test(s[j])) j++;
+            const raw = s.slice(i, j).replace(/_/g, '');
+            if (isNaN(parseFloat(raw))) throw new Error('"' + raw + '" is not a number');
+            out.push({ t: 'num', v: parseFloat(raw) }); i = j; continue;
+        }
+        if (/[A-Za-z_]/.test(c)) {
+            let j = i; while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++;
+            out.push({ t: 'name', v: s.slice(i, j).toUpperCase() }); i = j; continue;
+        }
+        const two = s.slice(i, i + 2);
+        if (FORMULA_OPS[two]) { out.push({ t: 'op', v: two }); i += 2; continue; }
+        if (FORMULA_OPS[c]) { out.push({ t: 'op', v: c }); i++; continue; }
+        if (c === '(' || c === ')' || c === ',') { out.push({ t: c }); i++; continue; }
+        throw new Error('Cannot read "' + c + '" at position ' + (i + 1));
+    }
+    return out;
+}
+// Shunting-yard, so precedence is honoured without handing anything to eval.
+function compileFormula(src) {
+    const tokens = tokenizeFormula(src);
+    const out = [], stack = [];
+    let prev = null;
+    tokens.forEach((tk, idx) => {
+        if (tk.t === 'num') out.push(tk);
+        else if (tk.t === 'name') {
+            const next = tokens[idx + 1];
+            if (next && next.t === '(') stack.push({ t: 'func', v: tk.v, argc: 1 });
+            else out.push({ t: 'var', v: tk.v });
+        } else if (tk.t === ',') {
+            while (stack.length && stack[stack.length - 1].t !== '(') out.push(stack.pop());
+            const fn = stack[stack.length - 2];
+            if (fn && fn.t === 'func') fn.argc++;
+        } else if (tk.t === 'op') {
+            // A leading minus is a negation, not a subtraction.
+            if (tk.v === '-' && (!prev || prev.t === 'op' || prev.t === '(' || prev.t === ',')) {
+                out.push({ t: 'num', v: 0 });
+            }
+            while (stack.length) {
+                const top = stack[stack.length - 1];
+                if (top.t === 'op' && FORMULA_OPS[top.v].p >= FORMULA_OPS[tk.v].p) out.push(stack.pop());
+                else break;
+            }
+            stack.push(tk);
+        } else if (tk.t === '(') stack.push(tk);
+        else if (tk.t === ')') {
+            while (stack.length && stack[stack.length - 1].t !== '(') out.push(stack.pop());
+            if (!stack.length) throw new Error('A closing bracket has no opening one');
+            stack.pop();
+            if (stack.length && stack[stack.length - 1].t === 'func') out.push(stack.pop());
+        }
+        prev = tk;
+    });
+    while (stack.length) {
+        const top = stack.pop();
+        if (top.t === '(') throw new Error('An opening bracket was never closed');
+        out.push(top);
+    }
+    return out;
+}
+function runFormula(src, vars) {
+    const rpn = compileFormula(src);
+    const st = [];
+    rpn.forEach(tk => {
+        if (tk.t === 'num') { st.push(tk.v); return; }
+        if (tk.t === 'var') {
+            if (!(tk.v in vars)) throw new Error('"' + tk.v + '" is not one of the available values');
+            st.push(Number(vars[tk.v]) || 0); return;
+        }
+        if (tk.t === 'op') {
+            const y = st.pop(), x = st.pop();
+            if (x === undefined || y === undefined) throw new Error('"' + tk.v + '" is missing a value');
+            st.push(FORMULA_OPS[tk.v].fn(x, y)); return;
+        }
+        if (tk.t === 'func') {
+            const def = FORMULA_FUNCS[tk.v];
+            if (!def) throw new Error(tk.v + '() is not a function this engine knows');
+            const args = st.splice(Math.max(0, st.length - tk.argc), tk.argc);
+            if (def.args >= 0 && args.length !== def.args)
+                throw new Error(tk.v + '() takes ' + def.args + ' value(s), not ' + args.length);
+            st.push(def.fn(args)); return;
+        }
+    });
+    if (st.length !== 1) throw new Error('That does not resolve to a single number');
+    const v = st[0];
+    if (!isFinite(v)) throw new Error('The result is not a finite number');
+    return v;
+}
+// Checked without running it against anybody, for the editor.
+function validateFormula(src, vars) {
+    try { runFormula(src, vars); return { ok: true }; }
+    catch (err) { return { ok: false, error: err.message }; }
+}
+
+// The values a formula may use. Everything is a number so a formula can never
+// return anything else.
+function formulaVars(row, extra) {
+    const emp = row && row.empId ? empById(row.empId) : null;
+    const struct = row && row.struct ? row.struct : (emp ? calculateSalaryStructure(emp.ctc) : { earnings: {}, grossMonthly: 0 });
+    const earn = (row && row.earned) ? row.earned : struct.earnings;
+    const pick = re => { const k = Object.keys(earn).find(x => re.test(x.toLowerCase())); return k ? earn[k] : 0; };
+    const m = row && row.muster ? row.muster : {};
+    const vars = {
+        CTC: emp ? emp.ctc : 0,
+        GROSS: struct.grossMonthly || 0,
+        EARNED_GROSS: (row && row.grossEarned) || struct.grossMonthly || 0,
+        BASIC: pick(/basic/), HRA: pick(/hra|house/), SPECIAL: pick(/special/),
+        CONVEYANCE: pick(/convey/), MEDICAL: pick(/medical/),
+        DAYS_IN_MONTH: m.calendarDays || 30, PAYABLE_DAYS: m.payableDays || (m.calendarDays || 30),
+        LOP_DAYS: m.lop || 0, PRESENT_DAYS: m.present || 0,
+        OVERTIME: (row && row.variable && row.variable.overtime) || 0,
+        BONUS: (row && row.variable && row.variable.bonus) || 0,
+        PF: (row && row.deductions && row.deductions.pf) || 0,
+        ESIC: (row && row.deductions && row.deductions.esic) || 0,
+        PF_CEILING: STAT_CONFIG.pf.wageCeiling, ESIC_CEILING: STAT_CONFIG.esic.wageCeiling
+    };
+    return Object.assign(vars, extra || {});
+}
+const FORMULA_VAR_HELP = [
+    ['CTC', 'Annual cost to company'], ['GROSS', 'Monthly gross from the salary structure'],
+    ['EARNED_GROSS', 'Gross actually earned this period, after loss of pay'],
+    ['BASIC', 'Basic for the period'], ['HRA', 'House rent allowance'], ['SPECIAL', 'Special allowance'],
+    ['DAYS_IN_MONTH', 'Days in the payroll month'], ['PAYABLE_DAYS', 'Days being paid'],
+    ['LOP_DAYS', 'Loss-of-pay days'], ['PRESENT_DAYS', 'Days present'],
+    ['OVERTIME', 'Overtime already computed'], ['BONUS', 'Performance bonus already computed'],
+    ['PF', 'Employee provident fund this period'], ['ESIC', 'Employee ESIC this period'],
+    ['PF_CEILING', 'PF wage ceiling'], ['ESIC_CEILING', 'ESIC wage ceiling']
+];
+
+// --- Formula setup screens ----------------------------------------------
+function renderFormulaSetup() {
+    renderPtFormulas();
+    renderFormulaComponents();
+}
+function formulaHelpHtml() {
+    return '<details style="margin-bottom:14px;"><summary style="cursor:pointer; font-size:0.82rem; font-weight:600; color:var(--secondary);">What you can write in a formula</summary>' +
+        '<div style="font-size:0.8rem; color:var(--text-muted); line-height:1.7; margin-top:10px;">' +
+        '<strong>Values</strong> (all numbers): ' +
+        FORMULA_VAR_HELP.map(v => '<code>' + v[0] + '</code> ' + v[1]).join(' &middot; ') +
+        '<br><br><strong>Functions</strong>: <code>MIN</code>, <code>MAX</code>, <code>ROUND(x[, places])</code>, ' +
+        '<code>FLOOR</code>, <code>CEIL</code>, <code>ABS</code>, <code>IF(test, then, else)</code>, ' +
+        '<code>PRORATE(amount, days, of_days)</code>, ' +
+        '<code>SLAB(value, limit1, amount1, limit2, amount2, …, rest)</code>' +
+        '<br><br><strong>Operators</strong>: <code>+ - * / %</code> and <code>&lt; &gt; &lt;= &gt;= == != &amp;&amp; ||</code>' +
+        '<br><br>Formulas are not code: they can only produce a number from the values above. ' +
+        'A formula that fails is reported, never silently treated as zero.</div></details>';
+}
+function renderPtFormulas() {
+    const tb = document.getElementById('pt-formula-table');
+    if (!tb) return;
+    const probe = [9000, 14000, 20000, 30000, 50000];
+    tb.innerHTML = ptStates().map(state => {
+        const expr = ptFormulaFor(state);
+        const custom = !!ptFormulas[state];
+        const check = validateFormula(expr, formulaVars(null, { GROSS: 20000, EARNED_GROSS: 20000 }));
+        const samples = probe.map(g => {
+            try { return fmtINR(Math.round(runFormula(expr, { GROSS: g, EARNED_GROSS: g }))); }
+            catch (err) { return '!'; }
+        }).join(' / ');
+        return '<tr>' +
+            '<td><strong>' + esc(state) + '</strong>' + (custom ? '<br><span class="badge badge-info">edited</span>' : '') + '</td>' +
+            '<td style="font-family:monospace; font-size:0.76rem; max-width:420px; word-break:break-all;">' + esc(expr) + '</td>' +
+            '<td style="font-size:0.76rem; color:var(--text-muted);">' + samples + '</td>' +
+            '<td>' + (check.ok ? '<span class="badge badge-success">valid</span>'
+                : '<span class="badge badge-danger" title="' + esc(check.error) + '">error</span>') + '</td>' +
+            '<td style="white-space:nowrap;"><button class="btn btn-outline" style="padding:4px 8px; font-size:0.72rem;" onclick="editPtFormula(\'' + esc(state) + '\')">Edit</button>' +
+            (custom ? ' <button class="btn btn-outline" style="padding:4px 8px; font-size:0.72rem;" onclick="resetPtFormula(\'' + esc(state) + '\')">Reset</button>' : '') + '</td>' +
+        '</tr>';
+    }).join('');
+    const note = document.getElementById('pt-formula-note');
+    if (note) note.innerHTML = 'Sample column shows the monthly deduction at a gross of ' +
+        probe.map(p => fmtINR(p)).join(', ') + '.';
+}
+function editPtFormula(state) {
+    const cur = ptFormulaFor(state);
+    const next = prompt('Professional tax formula for ' + state + '.\n\n' +
+        'GROSS is the month\'s gross. SLAB(GROSS, limit, amount, limit, amount, …, rest)\n' +
+        'reads as: at or below the first limit pay the first amount, and so on.\n\n' +
+        'Formula:', cur);
+    if (next === null) return;
+    const check = validateFormula(next, { GROSS: 20000, EARNED_GROSS: 20000 });
+    if (!check.ok) return showToast('That formula will not run: ' + check.error, 'error');
+    const before = professionalTax(state, 20000);
+    ptFormulas[state] = next.trim();
+    ptFormulaWarned[state] = false;
+    const after = professionalTax(state, 20000);
+    audit('Professional tax formula changed', state + ' · ' + next.trim(), 'Payroll');
+    renderPtFormulas();
+    if (payrollStage >= 4) { stageStatutory(); stageValidate(); renderPayrollUI(); }
+    showToast('Formula saved for ' + state + '. At a gross of ' + fmtINR(20000) + ' the deduction goes from ' +
+        fmtINR(before) + ' to ' + fmtINR(after) + '.', 'success');
+}
+function resetPtFormula(state) {
+    delete ptFormulas[state];
+    audit('Professional tax formula reset', state + ' · back to the shipped slab table', 'Payroll');
+    renderPtFormulas();
+    if (payrollStage >= 4) { stageStatutory(); stageValidate(); renderPayrollUI(); }
+    showToast(state + ' is back on its shipped slabs.', 'success');
+}
+
+function renderFormulaComponents() {
+    const tb = document.getElementById('formula-comp-table');
+    if (!tb) return;
+    const sample = employees[0] ? { empId: employees[0].id, struct: calculateSalaryStructure(employees[0].ctc) } : null;
+    const vars = formulaVars(sample);
+    tb.innerHTML = formulaComponents.length
+        ? formulaComponents.map(c => {
+            const check = validateFormula(c.expr, vars);
+            let preview = '--';
+            if (check.ok) { try { preview = fmtINR(Math.round(runFormula(c.expr, vars))); } catch (e) { preview = '--'; } }
+            return '<tr>' +
+                '<td><strong>' + esc(c.name) + '</strong>' + (c.notes ? '<br><span style="font-size:0.72rem; color:var(--text-muted)">' + esc(c.notes) + '</span>' : '') + '</td>' +
+                '<td><span class="badge ' + (c.kind === 'deduction' ? 'badge-danger' : 'badge-success') + '">' +
+                    (c.kind === 'deduction' ? 'Deduct' : 'Add') + '</span>' +
+                    (c.kind === 'earning' ? '<br><span style="font-size:0.72rem; color:var(--text-muted)">' + (c.taxable ? 'taxable' : 'not taxable') + '</span>' : '') + '</td>' +
+                '<td style="font-family:monospace; font-size:0.76rem; max-width:340px; word-break:break-all;">' + esc(c.expr) + '</td>' +
+                '<td style="font-size:0.8rem;">' + (c.scope === 'all' ? 'Everyone' : c.scope === 'dept' ? esc(c.target) : esc(empName(c.target))) + '</td>' +
+                '<td style="font-size:0.8rem;">' + preview + '<br><span style="font-size:0.7rem; color:var(--text-muted)">for ' + esc(sample ? empName(sample.empId) : '--') + '</span></td>' +
+                '<td>' + (check.ok ? (c.enabled ? '<span class="badge badge-success">on</span>' : '<span class="badge badge-neutral">off</span>')
+                    : '<span class="badge badge-danger" title="' + esc(check.error) + '">error</span>') + '</td>' +
+                '<td><button class="btn btn-outline" style="padding:4px 8px; font-size:0.72rem;" onclick="openFormulaComponent(\'' + c.id + '\')">Edit</button></td>' +
+            '</tr>';
+        }).join('')
+        : '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:18px;">' +
+          'No custom components yet. Add one for anything the CTC structure cannot express — a shift allowance, ' +
+          'a attendance incentive, a recurring recovery.</td></tr>';
+}
+function openFormulaComponent(id) {
+    const c = id ? formulaComponents.find(x => x.id === id) : null;
+    const body = document.getElementById('formula-body');
+    if (!body) return;
+    const depts = [];
+    employees.forEach(e => { if (depts.indexOf(e.dept) === -1) depts.push(e.dept); });
+    const field = (label, html, hint) => '<div><label style="display:block; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:5px;">' + label + '</label>' + html +
+        (hint ? '<div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">' + hint + '</div>' : '') + '</div>';
+    document.getElementById('formula-title').innerText = c ? 'Edit component' : 'New payroll component';
+    body.innerHTML =
+        '<input type="hidden" id="fc-id" value="' + (c ? esc(c.id) : '') + '">' +
+        '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:14px;">' +
+            field('Name', '<input type="text" id="fc-name" value="' + (c ? esc(c.name) : '') + '" placeholder="Shift allowance">', 'What the employee sees on the payslip.') +
+            field('Add or deduct', '<select id="fc-kind" onchange="previewFormula()">' +
+                '<option value="earning"' + (c && c.kind === 'earning' ? ' selected' : '') + '>Add to salary</option>' +
+                '<option value="deduction"' + (c && c.kind === 'deduction' ? ' selected' : '') + '>Deduct from salary</option></select>') +
+            field('Applies to', '<select id="fc-scope" onchange="renderFormulaScope()">' +
+                '<option value="all"' + (!c || c.scope === 'all' ? ' selected' : '') + '>Everyone</option>' +
+                '<option value="dept"' + (c && c.scope === 'dept' ? ' selected' : '') + '>One department</option>' +
+                '<option value="employee"' + (c && c.scope === 'employee' ? ' selected' : '') + '>One employee</option></select>') +
+            '<div id="fc-target-wrap"></div>' +
+        '</div>' +
+        field('Formula', '<textarea id="fc-expr" rows="3" style="font-family:monospace; font-size:0.85rem;" oninput="previewFormula()" placeholder="ROUND(BASIC * 0.10)">' + (c ? esc(c.expr) : '') + '</textarea>') +
+        '<div id="fc-preview" style="font-size:0.84rem; margin:10px 0 14px; min-height:22px;"></div>' +
+        formulaHelpHtml() +
+        '<label style="display:flex; gap:9px; align-items:center; text-transform:none; font-weight:400; color:var(--text-dark); margin-bottom:8px;" id="fc-taxable-wrap">' +
+            '<input type="checkbox" id="fc-taxable" style="width:16px; height:16px;"' + (!c || c.taxable ? ' checked' : '') + '>' +
+            '<span style="font-size:0.85rem;">Counts as a taxable earning</span></label>' +
+        '<label style="display:flex; gap:9px; align-items:center; text-transform:none; font-weight:400; color:var(--text-dark); margin-bottom:12px;">' +
+            '<input type="checkbox" id="fc-enabled" style="width:16px; height:16px;"' + (!c || c.enabled ? ' checked' : '') + '>' +
+            '<span style="font-size:0.85rem;">Apply this in payroll runs</span></label>' +
+        field('Note', '<input type="text" id="fc-notes" value="' + (c ? esc(c.notes || '') : '') + '" placeholder="Why this exists">') +
+        '<div style="display:flex; justify-content:space-between; gap:10px; margin-top:18px;">' +
+            '<div>' + (c ? '<button class="btn btn-danger" onclick="deleteFormulaComponent(\'' + c.id + '\')">Delete</button>' : '') + '</div>' +
+            '<div style="display:flex; gap:10px;">' +
+                '<button class="btn btn-outline" onclick="closeModal(\'modal-formula\')">Cancel</button>' +
+                '<button class="btn btn-primary" onclick="saveFormulaComponent()">' + (c ? 'Save' : 'Add component') + '</button></div>' +
+        '</div>';
+    renderFormulaScope();
+    previewFormula();
+    openModal('modal-formula');
+}
+function renderFormulaScope() {
+    const wrap = document.getElementById('fc-target-wrap');
+    const scope = (document.getElementById('fc-scope') || {}).value;
+    if (!wrap) return;
+    const lbl = '<label style="display:block; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:5px;">Which</label>';
+    if (scope === 'dept') {
+        const depts = [];
+        employees.forEach(e => { if (depts.indexOf(e.dept) === -1) depts.push(e.dept); });
+        wrap.innerHTML = lbl + '<select id="fc-target">' + depts.map(d => '<option value="' + esc(d) + '">' + esc(d) + '</option>').join('') + '</select>';
+    } else if (scope === 'employee') {
+        wrap.innerHTML = lbl + '<select id="fc-target">' + employees.map(e =>
+            '<option value="' + e.id + '">' + esc(e.name + ' (' + e.id + ')') + '</option>').join('') + '</select>';
+    } else wrap.innerHTML = '';
+    previewFormula();
+}
+// The formula is checked against a real employee as it is typed, so a mistake
+// is caught here rather than in a payroll run.
+function previewFormula() {
+    const el = document.getElementById('fc-preview');
+    const exprEl = document.getElementById('fc-expr');
+    if (!el || !exprEl) return;
+    const kindEl = document.getElementById('fc-kind');
+    const taxWrap = document.getElementById('fc-taxable-wrap');
+    if (taxWrap && kindEl) taxWrap.style.display = kindEl.value === 'deduction' ? 'none' : 'flex';
+    const expr = exprEl.value.trim();
+    if (!expr) { el.innerHTML = '<span style="color:var(--text-muted)">Type a formula to see what it pays.</span>'; return; }
+    const rows = employees.slice(0, 3).map(e => {
+        const vars = formulaVars({ empId: e.id, struct: calculateSalaryStructure(e.ctc) });
+        try {
+            const v = Math.round(runFormula(expr, vars));
+            return '<div>' + esc(e.name) + ' <span style="color:var(--text-muted)">(gross ' + fmtINR(vars.GROSS) + ')</span> → <strong>' + fmtINR(v) + '</strong></div>';
+        } catch (err) {
+            return '<div style="color:var(--danger)">' + esc(e.name) + ' → ' + esc(err.message) + '</div>';
+        }
+    });
+    el.innerHTML = '<div style="background:var(--bg-main); border-radius:8px; padding:10px 12px; line-height:1.7;">' + rows.join('') + '</div>';
+}
+function saveFormulaComponent() {
+    const g = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    const name = g('fc-name'), expr = g('fc-expr');
+    if (!name) return showToast('Give the component a name — it is what appears on the payslip.', 'error');
+    if (!expr) return showToast('Write a formula.', 'error');
+    const sample = employees[0] ? { empId: employees[0].id, struct: calculateSalaryStructure(employees[0].ctc) } : null;
+    const check = validateFormula(expr, formulaVars(sample));
+    if (!check.ok) return showToast('That formula will not run: ' + check.error, 'error');
+    const id = g('fc-id');
+    const kind = g('fc-kind');
+    const rec = {
+        id: id || ('FC-' + String(nextFormulaSeq++).padStart(3, '0')),
+        name: name, kind: kind, expr: expr,
+        taxable: kind === 'earning' ? !!(document.getElementById('fc-taxable') || {}).checked : false,
+        enabled: !!(document.getElementById('fc-enabled') || {}).checked,
+        scope: g('fc-scope'), target: g('fc-target'), notes: g('fc-notes')
+    };
+    const at = id ? formulaComponents.findIndex(c => c.id === id) : -1;
+    if (at >= 0) formulaComponents[at] = rec; else formulaComponents.push(rec);
+    audit(at >= 0 ? 'Payroll component changed' : 'Payroll component added',
+        rec.name + ' · ' + rec.kind + ' · ' + rec.expr, 'Payroll');
+    closeModal('modal-formula');
+    if (payrollStage >= 3) { stageVariablePay(); if (payrollStage >= 4) stageStatutory(); if (payrollStage >= 5) stageValidate(); renderPayrollUI(); }
+    renderFormulaComponents();
+    showToast(rec.name + ' saved.', 'success');
+}
+function deleteFormulaComponent(id) {
+    const c = formulaComponents.find(x => x.id === id);
+    if (!c || !confirm('Delete "' + c.name + '"?\n\nIt stops applying from the next payroll run.')) return;
+    formulaComponents = formulaComponents.filter(x => x.id !== id);
+    audit('Payroll component deleted', c.name, 'Payroll');
+    closeModal('modal-formula');
+    if (payrollStage >= 3) { stageVariablePay(); if (payrollStage >= 4) stageStatutory(); renderPayrollUI(); }
+    renderFormulaComponents();
+    showToast(c.name + ' deleted.', 'success');
+}
+
+// --- Professional tax, as a formula -------------------------------------
+// The slabs were a table walked in code. They are the same thing written as a
+// SLAB() call, which means HR can change a state's rule — or add a state — when
+// the Finance Act moves, instead of waiting for someone to edit the source.
+// The defaults are generated from the slabs that were already shipping, so
+// converting this changed nobody's deduction on the day it went in.
+var ptFormulas = {};
+function slabsToFormula(slabs) {
+    const parts = ['GROSS'];
+    for (let i = 0; i < slabs.length - 1; i++) parts.push(slabs[i].upto, slabs[i].amt);
+    parts.push(slabs[slabs.length - 1].amt);
+    return 'SLAB(' + parts.join(', ') + ')';
+}
+function ptStates() {
+    const fromCfg = Object.keys(STAT_CONFIG.pt);
+    Object.keys(ptFormulas).forEach(k => { if (fromCfg.indexOf(k) === -1) fromCfg.push(k); });
+    return fromCfg;
+}
+function ptFormulaFor(state) {
+    if (ptFormulas[state]) return ptFormulas[state];
+    const slabs = STAT_CONFIG.pt[state] || STAT_CONFIG.pt['Default'];
+    return slabsToFormula(slabs);
+}
+// Errors never silently become zero tax: the slab table is the fallback and the
+// problem is written to the audit trail so somebody fixes the formula.
+var ptFormulaWarned = {};
+function professionalTaxFromSlabs(state, gross) {
     const slabs = STAT_CONFIG.pt[state] || STAT_CONFIG.pt['Default'];
     for (let i = 0; i < slabs.length; i++) if (gross <= slabs[i].upto) return slabs[i].amt;
     return slabs[slabs.length - 1].amt;
+}
+
+// --- Custom payroll components ------------------------------------------
+// Named lines HR defines once and payroll applies to everyone who matches,
+// as against an ad-hoc line which is one person for one period.
+var formulaComponents = [];
+var nextFormulaSeq = 1;
+
+function componentApplies(comp, row) {
+    if (!comp.enabled) return false;
+    if (comp.scope === 'dept') return (empById(row.empId) || {}).dept === comp.target;
+    if (comp.scope === 'employee') return row.empId === comp.target;
+    return true;
+}
+// Runs every enabled component for one row, and reports anything that failed
+// rather than quietly paying nothing.
+function runFormulaComponents(row) {
+    const out = [], errors = [];
+    const vars = formulaVars(row);
+    formulaComponents.forEach(c => {
+        if (!componentApplies(c, row)) return;
+        try {
+            const v = Math.round(runFormula(c.expr, vars));
+            if (v === 0) return;
+            out.push({ id: c.id, name: c.name, kind: c.kind, amount: Math.abs(v),
+                       taxable: c.kind === 'earning' ? !!c.taxable : false });
+        } catch (err) {
+            errors.push({ name: c.name, error: err.message });
+        }
+    });
+    row.formulaLines = out;
+    row.formulaErrors = errors;
+    const t = { addTaxable: 0, addNonTaxable: 0, deduct: 0 };
+    out.forEach(l => {
+        if (l.kind === 'deduction') t.deduct += l.amount;
+        else if (l.taxable) t.addTaxable += l.amount;
+        else t.addNonTaxable += l.amount;
+    });
+    row.formulaTotals = t;
+    return t;
+}
+
+function professionalTax(state, gross) {
+    const expr = ptFormulaFor(state);
+    try {
+        return Math.round(runFormula(expr, { GROSS: gross, EARNED_GROSS: gross }));
+    } catch (err) {
+        if (!ptFormulaWarned[state]) {
+            ptFormulaWarned[state] = true;
+            audit('Professional tax formula failed', state + ' · ' + err.message + ' · fell back to the slab table', 'Payroll');
+        }
+        return professionalTaxFromSlabs(state, gross);
+    }
 }
 function recomputeNet(row) {
     const d = row.deductions;
     // Leave encashment is a taxable earning but never a PF, ESIC or PT wage, so it
     // is added after the statutory bases have been worked out.
     const adj = row.adjust || { addTaxable: 0, addNonTaxable: 0, deduct: 0 };
+    const fx = row.formulaTotals || { addTaxable: 0, addNonTaxable: 0, deduct: 0 };
     const totalEarn = row.grossEarned + row.variable.bonus + row.variable.arrears + row.variable.overtime +
-        (row.variable.leaveEncash || 0) + (row.variable.dutyAllowance || 0) + adj.addTaxable;
-    const totalDed = d.pf + d.esic + d.pt + d.tds + d.loan + adj.deduct;
+        (row.variable.leaveEncash || 0) + (row.variable.dutyAllowance || 0) + adj.addTaxable + fx.addTaxable;
+    const totalDed = d.pf + d.esic + d.pt + d.tds + d.loan + adj.deduct + fx.deduct;
     // Reimbursements and non-taxable additions are paid with salary but are not
     // taxable earnings, so they sit outside the gross the tax is worked out on.
     row.totalEarnings = totalEarn;
     row.totalDeductions = totalDed;
-    row.netPay = totalEarn - totalDed + row.reimbursements + adj.addNonTaxable;
+    row.netPay = totalEarn - totalDed + row.reimbursements + adj.addNonTaxable + fx.addNonTaxable;
     return row.netPay;
 }
 
@@ -8441,6 +8952,8 @@ function openPayslipModal(empId, period) {
     if (row.variable.overtime > 0) earnList.push({ name: 'Overtime', val: row.variable.overtime, ytd: row.variable.overtime });
     if (row.variable.leaveEncash > 0) earnList.push({ name: 'Leave Encashment', val: row.variable.leaveEncash, ytd: row.variable.leaveEncash });
     if (row.variable.dutyAllowance > 0) earnList.push({ name: 'Out Duty / Outstation Allowance', val: row.variable.dutyAllowance, ytd: row.variable.dutyAllowance });
+    (row.formulaLines || []).filter(a => a.kind === 'earning').forEach(a =>
+        earnList.push({ name: a.name + (a.taxable ? '' : ' (not taxable)'), val: a.amount, ytd: a.amount }));
     (row.adjustLines || []).filter(a => a.kind === 'earning').forEach(a =>
         earnList.push({ name: a.label + (a.taxable ? '' : ' (not taxable)'), val: a.amount, ytd: a.amount }));
 
@@ -8450,6 +8963,8 @@ function openPayslipModal(empId, period) {
     if (row.deductions.pt > 0) dedList.push({ name: 'Professional Tax (' + row.state + ')', val: row.deductions.pt, ytd: ytdAcc.pt || row.deductions.pt });
     if (row.deductions.tds > 0) dedList.push({ name: 'Income Tax (TDS)', val: row.deductions.tds, ytd: ytdAcc.tds || row.deductions.tds });
     row.loanDetail.forEach(d => dedList.push({ name: 'Loan EMI · ' + d.type, val: d.emi, ytd: d.emi }));
+    (row.formulaLines || []).filter(a => a.kind === 'deduction').forEach(a =>
+        dedList.push({ name: a.name, val: a.amount, ytd: a.amount }));
     (row.adjustLines || []).filter(a => a.kind === 'deduction').forEach(a =>
         dedList.push({ name: a.label, val: a.amount, ytd: a.amount }));
 
@@ -14889,7 +15404,7 @@ const STORE_KEY = 'biscs-hrms-state-v1';
 const PERSISTED = ['employees', 'nextEmpSeq', 'leaveLedger', 'nextLeaveSeq', 'leavePolicy', 'leaveCredits',
     'nextLeaveCreditSeq', 'leaveEncashments', 'nextLeaveEncashSeq', 'attendanceExceptions', 'taxDeclarations',
     'loans', 'nextLoanSeq', 'expenseClaims', 'nextExpenseSeq', 'travelRequests', 'nextTravelSeq', 'enpsResponses', 'salaryRevisions', 'nextRevisionSeq',
-    'payrollPeriods', 'activePayrollPeriod', 'payrollAdjustments', 'nextAdjSeq', 'candidates', 'interviews', 'helpdeskTickets', 'exits',
+    'payrollPeriods', 'activePayrollPeriod', 'payrollAdjustments', 'nextAdjSeq', 'formulaComponents', 'nextFormulaSeq', 'ptFormulas', 'candidates', 'interviews', 'helpdeskTickets', 'exits',
     'timesheets', 'nextTimesheetSeq', 'assets', 'shiftRoster', 'domeboxSync', 'ctcStructure', 'auditLog',
     'workflowInstances', 'nextWorkflowSeq', 'workflowConfig',
     'attendancePolicy', 'dailyAttendance', 'regularisations', 'nextRegSeq', 'compOffLedger', 'nextCompOffSeq',
@@ -16260,7 +16775,7 @@ function renderSettingsView() {
     // Fill whichever panel is on, using the screens' own render functions.
     const fill = {
         org: () => { renderSettingsEstablishment(); },
-        payroll: () => { if (typeof renderCTCConfig === 'function') renderCTCConfig(); },
+        payroll: () => { if (typeof renderCTCConfig === 'function') renderCTCConfig(); renderFormulaSetup(); },
         attendance: () => { renderAttendancePolicy(); renderGeoFences(); if (typeof renderAttReqRules === 'function') renderAttReqRules(); else if (typeof renderAttendanceRequests === 'function') renderAttendanceRequests(); },
         leave: () => { if (typeof renderLeaveRuleSet === 'function') renderLeaveRuleSet(); },
         expenses: () => { if (typeof renderExpensePolicy === 'function') renderExpensePolicy(); },

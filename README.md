@@ -446,6 +446,52 @@ them. Every line carries a reason and lands on the audit trail.
 > reached the tax calculation** — an under-deduction that would have left the
 > employee with a bill. The projection now includes every taxable earning.
 
+## Formulas
+
+Some pay is not "a percentage of basic". **Settings → Payroll & CTC** carries a
+formula engine for the rest.
+
+**It is not `eval`.** An expression is tokenised, converted to postfix and
+evaluated over a fixed set of named values, so a formula can only ever produce a
+number — it cannot reach the page, the network, or any state it was not handed.
+`alert(1)` is rejected as "ALERT() is not a function this engine knows".
+
+Available values are the ones payroll actually has — `GROSS`, `EARNED_GROSS`,
+`BASIC`, `HRA`, `PAYABLE_DAYS`, `LOP_DAYS`, `OVERTIME`, `PF_CEILING` and the
+rest — with `MIN`, `MAX`, `ROUND`, `FLOOR`, `CEIL`, `ABS`, `IF`, `PRORATE` and
+`SLAB` on top.
+
+### Payroll components
+
+A named line that applies every period to everyone, one department or one
+person: a shift allowance as `ROUND(BASIC * 0.10)`, a canteen recovery as
+`IF(PAYABLE_DAYS > 20, 600, 300)`. Each is checked against real employees **as
+you type**, showing what three of them would actually be paid, so a mistake is
+caught in the editor rather than in a payroll run. A component that fails at run
+time is reported on the row, never silently paid as nothing.
+
+Components can be taxable or not, exactly like the ad-hoc lines, and appear on
+the payslip under their own names.
+
+### Professional tax is now one of them
+
+PT was a slab table walked in code, so changing a state's rule meant editing the
+source. Each state is now a formula:
+
+```
+SLAB(GROSS, 10000, 0, 15000, 110, 25000, 130, 40000, 150, 200)
+```
+
+read as *at or below 10,000 pay nothing; at or below 15,000 pay 110; … past
+every limit pay 200*. HR can edit a state, add one, or reset it to the shipped
+slabs, and the table shows the deduction at five sample salaries as a check.
+
+The defaults are generated from the slabs that were already shipping, and the
+conversion was verified to produce **identical figures for every state at every
+gross tested** — nobody's deduction moved on the day it went in. A formula that
+fails falls back to the slab table and writes the failure to the audit trail; it
+never silently becomes zero tax.
+
 ## Report Center
 
 Eighteen reports across four categories, each one definition — name, what it
