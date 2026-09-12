@@ -67,6 +67,18 @@ scratch and re-running the full security suite against the result.
 `setup.sql` is generated from `migrations/*.sql`. Edit the migrations; if you
 prefer to run them one at a time, they work that way too, in numbered order.
 
+### If the trigger warning appears
+
+The setup may end with:
+
+> *Could not attach the trigger to auth.users (permission denied).*
+
+Everything else is in place — only the convenience of auto-creating the
+`app_users` row is missing. Create accounts from **Users & Access** in the HRMS
+instead, or run that one trigger from a role with rights on the `auth` schema.
+The setup does not stop for it, because nothing else depends on it.
+
+
 ### 3. Create your own login
 
 **Dashboard → Authentication → Users → Add user.** Use your real email and a
@@ -167,8 +179,24 @@ closed to you, so the subquery returns nothing and you silently lose access to
 your own payslip. Both go through `security definer` functions — `my_manager()`,
 `my_team()`, `period_is_executed()` — which run outside RLS.
 
-Both of these were found by testing the policies against a real database rather
-than reading them, which is the only way they show up.
+**`FORCE ROW LEVEL SECURITY` breaks security-definer helpers.** FORCE subjects
+the table owner to its own policies, and the helpers here run as the owner —
+so `my_role()` reads `app_users`, whose policy asks `is_super()`, which asks
+`my_role()`, until the stack gives out. It is invisible when the owner is a
+superuser, because superusers bypass RLS regardless; it appears the moment the
+owner is an ordinary role, which is exactly what Supabase gives you. These
+tables therefore use ENABLE, not FORCE — the arrangement Supabase expects,
+since its API connects as `authenticated`/`anon` and never as the owner.
+
+**Extensions and `information_schema` both need care.** `pgcrypto` is not
+needed at all (`gen_random_uuid()` is core from PostgreSQL 13) and `citext` is
+replaced by a `lower()` unique index, so the setup needs no rights beyond its
+own tables. And `information_schema` hides objects the current role cannot
+read, so it reported `auth.users` as absent when it was merely not ours —
+`to_regclass` does not depend on privileges.
+
+All of these were found by testing against a database owned by a non-superuser
+with no rights on `auth`, which is the only way they show up.
 
 ## Verifying it yourself
 

@@ -13,32 +13,50 @@
 -- call for a module the company never bought returns nothing rather than data.
 -- ============================================================================
 
+-- NOTE ON "FORCE". These tables use ENABLE row level security, deliberately not
+-- FORCE. FORCE would subject the table owner to its own policies, and the
+-- helpers below are security definer — they run as the owner. my_role() reads
+-- app_users, whose policy asks is_super(), which asks my_role(): recursion.
+-- Supabase's API never connects as the owner (it uses authenticated/anon), so
+-- every query from the outside is policed either way. Verified by running the
+-- whole suite as a non-owner role.
+
 -- ------------------------------------------------------------- who is this --
--- Supabase puts the authenticated user's uid in auth.uid(). Locally the same
--- value is read from a GUC so these policies can be tested without an auth
--- server, which is how they were verified.
-create schema if not exists auth;
-create or replace function auth.uid() returns uuid
-language sql stable as $$
-    select coalesce(
-        nullif(current_setting('request.jwt.claim.sub', true), '')::uuid,
-        nullif(current_setting('app.current_user_id', true), '')::uuid
-    );
-$$;
+-- Supabase owns the auth schema and already provides current_uid(). Creating
+-- anything in there is refused ("permission denied for schema auth"), and
+-- would be wrong anyway. So nothing here touches it: current_uid() reads
+-- current_uid() where it exists, and falls back to a session setting where it does
+-- not — which is what makes these same policies testable on plain PostgreSQL.
+create or replace function current_uid() returns uuid
+language plpgsql stable set search_path = public as $$
+declare v uuid;
+begin
+    -- to_regprocedure returns null rather than raising when current_uid() is absent,
+    -- so this is safe on a database that has never heard of Supabase.
+    if to_regprocedure('auth.uid()') is not null then
+        execute 'select auth.uid()' into v;
+    end if;
+    if v is null then
+        v := nullif(current_setting('app.current_user_id', true), '')::uuid;
+    end if;
+    return v;
+exception when others then
+    return nullif(current_setting('app.current_user_id', true), '')::uuid;
+end $$;
 
 create or replace function me() returns app_users
-language sql stable security definer set search_path = public, auth as $$
-    select * from app_users where id = auth.uid() and status = 'Active';
+language sql stable security definer set search_path = public as $$
+    select * from app_users where id = current_uid() and status = 'Active';
 $$;
 
 create or replace function my_company() returns uuid
-language sql stable security definer set search_path = public, auth as $$
-    select company_id from app_users where id = auth.uid() and status = 'Active';
+language sql stable security definer set search_path = public as $$
+    select company_id from app_users where id = current_uid() and status = 'Active';
 $$;
 
 create or replace function my_role() returns text
-language sql stable security definer set search_path = public, auth as $$
-    select role from app_users where id = auth.uid() and status = 'Active';
+language sql stable security definer set search_path = public as $$
+    select role from app_users where id = current_uid() and status = 'Active';
 $$;
 
 create or replace function is_super() returns boolean
@@ -48,20 +66,20 @@ create or replace function is_control() returns boolean
 language sql stable as $$ select my_role() in ('super','hr','admin'); $$;
 
 create or replace function my_employee() returns uuid
-language sql stable security definer set search_path = public, auth as $$
-    select employee_id from app_users where id = auth.uid() and status = 'Active';
+language sql stable security definer set search_path = public as $$
+    select employee_id from app_users where id = current_uid() and status = 'Active';
 $$;
 
 -- Who this employee reports to. A policy on employees cannot select from
 -- employees without recursing into itself, so the lookup happens here, outside
 -- row-level security.
 create or replace function my_manager() returns uuid
-language sql stable security definer set search_path = public, auth as $$
+language sql stable security definer set search_path = public as $$
     select manager_id from employees where id = my_employee();
 $$;
 
 create or replace function my_team() returns setof uuid
-language sql stable security definer set search_path = public, auth as $$
+language sql stable security definer set search_path = public as $$
     select id from employees where manager_id = my_employee();
 $$;
 
@@ -70,14 +88,14 @@ $$;
 -- subquery would return nothing and the employee would silently lose access to
 -- their own payslip rather than being refused it.
 create or replace function period_is_executed(p_id uuid) returns boolean
-language sql stable security definer set search_path = public, auth as $$
+language sql stable security definer set search_path = public as $$
     select exists (select 1 from payroll_periods where id = p_id and status = 'Executed');
 $$;
 
 -- An employee with people reporting to them approves for their team. It is read
 -- from the org chart, exactly as the browser reads it — not granted.
 create or replace function is_approver() returns boolean
-language sql stable security definer set search_path = public, auth as $$
+language sql stable security definer set search_path = public as $$
     select is_control() or exists (
         select 1 from employees e
         where e.manager_id = my_employee()
@@ -88,7 +106,7 @@ $$;
 -- Dependencies are resolved when a licence is written, so this is a plain
 -- lookup rather than a graph walk on every row.
 create or replace function has_module(p_key text) returns boolean
-language sql stable security definer set search_path = public, auth as $$
+language sql stable security definer set search_path = public as $$
     select case
         when my_role() = 'super' then true
         when not exists (
@@ -99,11 +117,11 @@ language sql stable security definer set search_path = public, auth as $$
         when not exists (
             select 1 from company_modules cm
             where cm.company_id = my_company() and cm.module_key = p_key) then false
-        when (select all_modules from app_users where id = auth.uid()) then true
+        when (select all_modules from app_users where id = current_uid()) then true
         when exists (select 1 from modules where key = p_key and is_core) then true
         else exists (
             select 1 from user_modules um
-            where um.user_id = auth.uid() and um.module_key = p_key)
+            where um.user_id = current_uid() and um.module_key = p_key)
     end;
 $$;
 
@@ -126,7 +144,6 @@ begin
         'workflow_instances','essl_device_map','essl_batches','audit_log']
     loop
         execute format('alter table %I enable row level security', t);
-        execute format('alter table %I force row level security', t);
         execute format('drop policy if exists %I_control_read on %I', t, t);
         execute format($f$
             create policy %I_control_read on %I for select
@@ -144,7 +161,6 @@ begin
     foreach t in array array['leave_types','formula_components','pt_formulas']
     loop
         execute format('alter table %I enable row level security', t);
-        execute format('alter table %I force row level security', t);
         execute format('drop policy if exists %I_company_read on %I', t, t);
         execute format($f$
             create policy %I_company_read on %I for select
@@ -233,8 +249,6 @@ alter table app_users       enable row level security;
 alter table user_modules    enable row level security;
 alter table company_modules enable row level security;
 alter table provisioning_log enable row level security;
-alter table companies force row level security;
-alter table app_users force row level security;
 
 -- A company row is visible to the provider, and to its own people.
 drop policy if exists company_read on companies;
@@ -247,7 +261,7 @@ create policy company_write on companies for all
 -- An account sees itself; HR sees its company's accounts; the provider sees all.
 drop policy if exists users_read on app_users;
 create policy users_read on app_users for select
-    using (is_super() or id = auth.uid() or (is_control() and company_id = my_company()));
+    using (is_super() or id = current_uid() or (is_control() and company_id = my_company()));
 drop policy if exists users_write on app_users;
 create policy users_write on app_users for all
     using (is_super() or (is_control() and company_id = my_company()))
@@ -263,7 +277,7 @@ create policy company_modules_write on company_modules for all
 
 drop policy if exists user_modules_read on user_modules;
 create policy user_modules_read on user_modules for select
-    using (is_super() or user_id = auth.uid()
+    using (is_super() or user_id = current_uid()
            or (is_control() and user_id in (select id from app_users where company_id = my_company())));
 drop policy if exists user_modules_write on user_modules;
 create policy user_modules_write on user_modules for all

@@ -10,7 +10,9 @@
 -- rupee does not reconcile against the bank file.
 -- ============================================================================
 
-create extension if not exists "pgcrypto";
+-- No extensions. gen_random_uuid() is core PostgreSQL from 13 onward, and
+-- case-insensitive email is done with a lower() index rather than citext, so
+-- this file needs no rights beyond creating its own tables.
 
 -- ---------------------------------------------------------------- provider --
 create table if not exists companies (
@@ -56,7 +58,7 @@ create table if not exists company_modules (
 -- straight onto a row without a lookup table in between.
 create table if not exists app_users (
     id           uuid primary key,
-    email        citext      not null unique,
+    email        text        not null,
     name         text        not null,
     role         text        not null default 'employee'
                  check (role in ('super','hr','admin','employee')),
@@ -95,7 +97,7 @@ create table if not exists employees (
     doj          date, exit_date date,
     location     text,
     status       text not null default 'Confirmed',
-    email        citext,
+    email        text,
     domebox      boolean not null default false,
     created_at   timestamptz not null default now(),
     unique (company_id, code),
@@ -106,6 +108,7 @@ do $$ begin
     alter table app_users add constraint app_users_employee_fk
         foreign key (employee_id) references employees(id) on delete set null;
 exception when duplicate_object then null; end $$;
+create unique index if not exists idx_app_users_email_lower on app_users (lower(email));
 create index if not exists idx_employees_company_id_dept on employees (company_id, dept);
 create index if not exists idx_employees_company_id_manager_id on employees (company_id, manager_id);
 

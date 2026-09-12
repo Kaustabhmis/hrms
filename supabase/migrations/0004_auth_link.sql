@@ -41,12 +41,15 @@ end $$;
 -- Supabase owns auth.users; this attaches to it without modifying it.
 do $$
 begin
-    if exists (select 1 from information_schema.tables
-               where table_schema='auth' and table_name='users') then
-        drop trigger if exists on_auth_user_created on auth.users;
-        create trigger on_auth_user_created
-            after insert on auth.users
-            for each row execute function handle_new_auth_user();
+    if to_regclass('auth.users') is not null then
+        begin
+            drop trigger if exists on_auth_user_created on auth.users;
+            create trigger on_auth_user_created
+                after insert on auth.users
+                for each row execute function handle_new_auth_user();
+        exception when insufficient_privilege then
+            raise warning 'Could not attach the trigger to auth.users (permission denied). Everything else is set up; create accounts from Users & Access in the HRMS, or run just this trigger as a role with rights on the auth schema.';
+        end;
     else
         raise notice 'auth.users not present — running outside Supabase, trigger skipped.';
     end if;
@@ -61,12 +64,15 @@ begin
 end $$;
 do $$
 begin
-    if exists (select 1 from information_schema.tables
-               where table_schema='auth' and table_name='users') then
-        drop trigger if exists on_auth_user_email on auth.users;
-        create trigger on_auth_user_email
-            after update of email on auth.users
-            for each row execute function handle_auth_user_email();
+    if to_regclass('auth.users') is not null then
+        begin
+            drop trigger if exists on_auth_user_email on auth.users;
+            create trigger on_auth_user_email
+                after update of email on auth.users
+                for each row execute function handle_auth_user_email();
+        exception when insufficient_privilege then
+            null;   -- the first warning already said it; one is enough
+        end;
     end if;
 end $$;
 
@@ -108,6 +114,6 @@ end $$;
 -- What this account may open, so the browser asks the database rather than
 -- deciding for itself.
 create or replace function my_modules() returns setof text
-language sql stable security definer set search_path = public, auth as $$
+language sql stable security definer set search_path = public as $$
     select key from modules where has_module(key);
 $$;
