@@ -109,6 +109,10 @@ create or replace function has_module(p_key text) returns boolean
 language sql stable security definer set search_path = public as $$
     select case
         when my_role() = 'super' then true
+        -- An account nobody has placed in a company yet holds nothing. Without
+        -- this it would be handed the core modules and see empty screens; with
+        -- it, it sees the truth, which is that it is not set up.
+        when my_company() is null then false
         when not exists (
             select 1 from companies c
             where c.id = my_company() and c.status = 'Active') then

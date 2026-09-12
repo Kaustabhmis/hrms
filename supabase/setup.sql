@@ -22,6 +22,7 @@ set client_min_messages = warning;
 
 
 
+
 -- ############################################################################
 -- 0001_schema.sql
 -- ############################################################################
@@ -95,9 +96,13 @@ create table if not exists app_users (
     status       text        not null default 'Active' check (status in ('Active','Suspended')),
     last_sign_in timestamptz,
     created_at   timestamptz not null default now(),
-    -- A provider account belongs to no company; everyone else must have one.
-    constraint provider_has_no_company check (
-        (role = 'super' and company_id is null) or (role <> 'super' and company_id is not null))
+    -- A provider account belongs to no company. Everybody else normally has
+    -- one, but must be allowed not to: a fresh Supabase signup arrives before
+    -- anyone has placed it, and an account that cannot be created cannot be
+    -- placed either. An unplaced account sees nothing at all — has_module()
+    -- refuses it and every tenant policy compares against a null company —
+    -- so this is a harmless state, not a hole.
+    constraint provider_has_no_company check (role <> 'super' or company_id is null)
 );
 create table if not exists user_modules (
     user_id    uuid not null references app_users(id) on delete cascade,
@@ -131,6 +136,13 @@ create table if not exists employees (
     constraint not_own_manager check (manager_id is null or manager_id <> id),
     constraint left_after_joining check (exit_date is null or doj is null or exit_date >= doj)
 );
+-- Replace the stricter form on any database that already has it.
+do $$ begin
+    alter table app_users drop constraint if exists provider_has_no_company;
+    alter table app_users add constraint provider_has_no_company
+        check (role <> 'super' or company_id is null);
+exception when others then null; end $$;
+
 do $$ begin
     alter table app_users add constraint app_users_employee_fk
         foreign key (employee_id) references employees(id) on delete set null;
@@ -483,6 +495,10 @@ create or replace function has_module(p_key text) returns boolean
 language sql stable security definer set search_path = public as $$
     select case
         when my_role() = 'super' then true
+        -- An account nobody has placed in a company yet holds nothing. Without
+        -- this it would be handed the core modules and see empty screens; with
+        -- it, it sees the truth, which is that it is not set up.
+        when my_company() is null then false
         when not exists (
             select 1 from companies c
             where c.id = my_company() and c.status = 'Active') then
@@ -820,11 +836,24 @@ end $$;
 create or replace function handle_new_auth_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-    v_role    text := coalesce(new.raw_user_meta_data->>'role', 'employee');
-    v_company uuid := nullif(new.raw_user_meta_data->>'company_id','')::uuid;
-    v_name    text := coalesce(nullif(new.raw_user_meta_data->>'name',''), split_part(new.email,'@',1));
+    v_role    text;
+    v_company uuid;
+    v_name    text;
 begin
+    -- Everything in here is defensive on purpose. A trigger on auth.users that
+    -- raises does not merely fail itself: it aborts the signup, and the only
+    -- symptom Supabase shows is "Database error creating new user". Locking
+    -- somebody out of creating accounts is far worse than failing to file one
+    -- neatly, so nothing below is allowed to throw.
+    v_role := coalesce(new.raw_user_meta_data->>'role', 'employee');
     if v_role not in ('super','hr','admin','employee') then v_role := 'employee'; end if;
+    v_name := coalesce(nullif(new.raw_user_meta_data->>'name',''), split_part(new.email,'@',1));
+    -- A company_id that is not a uuid must not take the signup down with it.
+    begin
+        v_company := nullif(new.raw_user_meta_data->>'company_id','')::uuid;
+    exception when others then
+        v_company := null;
+    end;
     -- A provider account has no company; anyone else must have one, so an
     -- invite that forgets it lands as an unplaced employee rather than failing.
     if v_role = 'super' then v_company := null; end if;
@@ -834,13 +863,22 @@ begin
                 'Signed up with no company_id in metadata. Place it in Users & Access before it can see anything.');
     end if;
 
-    insert into app_users (id, email, name, role, company_id, all_modules, status)
-    values (new.id, new.email, v_name, v_role, v_company, true, 'Active')
-    on conflict (id) do nothing;
+    begin
+        insert into app_users (id, email, name, role, company_id, all_modules, status)
+        values (new.id, new.email, v_name, v_role, v_company, true, 'Active')
+        on conflict (id) do nothing;
 
-    insert into provisioning_log(actor, event, subject, detail)
-    values ('auth trigger', 'Account created', new.email, v_role ||
-            coalesce(' · ' || (select name from companies where id = v_company), ' · unplaced'));
+        insert into provisioning_log(actor, event, subject, detail)
+        values ('auth trigger', 'Account created', new.email, v_role ||
+                coalesce(' · ' || (select name from companies where id = v_company), ' · unplaced'));
+    exception when others then
+        -- Record why and let the signup through. The account exists in Auth and
+        -- can be given its app_users row from Users & Access.
+        begin
+            insert into provisioning_log(actor, event, subject, detail)
+            values ('auth trigger', 'Could not file new account', new.email, sqlerrm);
+        exception when others then null; end;
+    end;
     return new;
 end $$;
 

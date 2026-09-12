@@ -14,11 +14,24 @@
 create or replace function handle_new_auth_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-    v_role    text := coalesce(new.raw_user_meta_data->>'role', 'employee');
-    v_company uuid := nullif(new.raw_user_meta_data->>'company_id','')::uuid;
-    v_name    text := coalesce(nullif(new.raw_user_meta_data->>'name',''), split_part(new.email,'@',1));
+    v_role    text;
+    v_company uuid;
+    v_name    text;
 begin
+    -- Everything in here is defensive on purpose. A trigger on auth.users that
+    -- raises does not merely fail itself: it aborts the signup, and the only
+    -- symptom Supabase shows is "Database error creating new user". Locking
+    -- somebody out of creating accounts is far worse than failing to file one
+    -- neatly, so nothing below is allowed to throw.
+    v_role := coalesce(new.raw_user_meta_data->>'role', 'employee');
     if v_role not in ('super','hr','admin','employee') then v_role := 'employee'; end if;
+    v_name := coalesce(nullif(new.raw_user_meta_data->>'name',''), split_part(new.email,'@',1));
+    -- A company_id that is not a uuid must not take the signup down with it.
+    begin
+        v_company := nullif(new.raw_user_meta_data->>'company_id','')::uuid;
+    exception when others then
+        v_company := null;
+    end;
     -- A provider account has no company; anyone else must have one, so an
     -- invite that forgets it lands as an unplaced employee rather than failing.
     if v_role = 'super' then v_company := null; end if;
@@ -28,13 +41,22 @@ begin
                 'Signed up with no company_id in metadata. Place it in Users & Access before it can see anything.');
     end if;
 
-    insert into app_users (id, email, name, role, company_id, all_modules, status)
-    values (new.id, new.email, v_name, v_role, v_company, true, 'Active')
-    on conflict (id) do nothing;
+    begin
+        insert into app_users (id, email, name, role, company_id, all_modules, status)
+        values (new.id, new.email, v_name, v_role, v_company, true, 'Active')
+        on conflict (id) do nothing;
 
-    insert into provisioning_log(actor, event, subject, detail)
-    values ('auth trigger', 'Account created', new.email, v_role ||
-            coalesce(' · ' || (select name from companies where id = v_company), ' · unplaced'));
+        insert into provisioning_log(actor, event, subject, detail)
+        values ('auth trigger', 'Account created', new.email, v_role ||
+                coalesce(' · ' || (select name from companies where id = v_company), ' · unplaced'));
+    exception when others then
+        -- Record why and let the signup through. The account exists in Auth and
+        -- can be given its app_users row from Users & Access.
+        begin
+            insert into provisioning_log(actor, event, subject, detail)
+            values ('auth trigger', 'Could not file new account', new.email, sqlerrm);
+        exception when others then null; end;
+    end;
     return new;
 end $$;
 

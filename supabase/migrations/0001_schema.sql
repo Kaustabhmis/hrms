@@ -68,9 +68,13 @@ create table if not exists app_users (
     status       text        not null default 'Active' check (status in ('Active','Suspended')),
     last_sign_in timestamptz,
     created_at   timestamptz not null default now(),
-    -- A provider account belongs to no company; everyone else must have one.
-    constraint provider_has_no_company check (
-        (role = 'super' and company_id is null) or (role <> 'super' and company_id is not null))
+    -- A provider account belongs to no company. Everybody else normally has
+    -- one, but must be allowed not to: a fresh Supabase signup arrives before
+    -- anyone has placed it, and an account that cannot be created cannot be
+    -- placed either. An unplaced account sees nothing at all — has_module()
+    -- refuses it and every tenant policy compares against a null company —
+    -- so this is a harmless state, not a hole.
+    constraint provider_has_no_company check (role <> 'super' or company_id is null)
 );
 create table if not exists user_modules (
     user_id    uuid not null references app_users(id) on delete cascade,
@@ -104,6 +108,13 @@ create table if not exists employees (
     constraint not_own_manager check (manager_id is null or manager_id <> id),
     constraint left_after_joining check (exit_date is null or doj is null or exit_date >= doj)
 );
+-- Replace the stricter form on any database that already has it.
+do $$ begin
+    alter table app_users drop constraint if exists provider_has_no_company;
+    alter table app_users add constraint provider_has_no_company
+        check (role <> 'super' or company_id is null);
+exception when others then null; end $$;
+
 do $$ begin
     alter table app_users add constraint app_users_employee_fk
         foreign key (employee_id) references employees(id) on delete set null;

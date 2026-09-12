@@ -119,6 +119,26 @@ The trigger from `0004` creates the matching `app_users` row for you. That is
 the step people get wrong by hand: `app_users.id` **is** the auth uid, which is
 what lets a JWT resolve to a row with no lookup table in between.
 
+### If Supabase says "Database error creating new user"
+
+That is the trigger from `0004` failing, and a trigger on `auth.users` that
+raises does not merely fail itself — it aborts the signup, with that one opaque
+message as the only symptom. Re-run `setup.sql`; it repairs the cause in place.
+
+The cause was mine: the schema required every non-provider account to belong to
+a company, but a fresh signup arrives before anyone has placed it. An account
+that cannot be created cannot be placed either. An unplaced account is now
+legal and **holds nothing at all** — `has_module()` refuses it and every tenant
+policy compares against a null company, so it sees no employees, no modules and
+no companies, only its own identity row. Place it in *Users & Access* and it
+comes to life.
+
+The trigger is also defensive now: nothing inside it can throw. If it cannot
+file an account it records why in the provisioning log and lets the signup
+through, because being locked out of creating accounts is far worse than having
+to file one by hand.
+
+
 ### 4. Make yourself the owner
 
 Back in the SQL Editor, once:
