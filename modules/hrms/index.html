@@ -4047,7 +4047,20 @@
     'use strict';
 
     var SB = null;                 // the supabase-js client, once created
-    var cfg = { url: '', anonKey: '', enabled: false };
+
+    // This installation's own project. Shipping it means a fresh browser -- a
+    // new laptop, a cleared cache, the phone in somebody's pocket -- arrives
+    // already talking to the right database instead of asking whoever opened it
+    // for a URL and a key. A publishable key is designed to sit in client code:
+    // row-level security is what protects the data, not the secrecy of this
+    // string. Anything saved in Settings overrides it.
+    var DEFAULT_URL = 'https://oacuhjpzivscczjbfewj.supabase.co';
+    var DEFAULT_KEY = 'sb_publishable_aJ1MgCcqLyUCufVwXYSnew_7VaYaVqQ';
+
+    // enabled: true means on, false means somebody turned it off, null means
+    // nobody has said either way -- which is not the same as off, and is why it
+    // is not a boolean.
+    var cfg = { url: DEFAULT_URL, anonKey: DEFAULT_KEY, enabled: null };
     var CONFIG_KEY = 'biscs-hrms-supabase-v1';
 
     function loadConfig() {
@@ -4064,6 +4077,18 @@
     }
     function isConfigured() { return !!(cfg.url && cfg.anonKey); }
     function isLive() { return !!(cfg.enabled && SB); }
+    function defaults() { return { url: DEFAULT_URL, anonKey: DEFAULT_KEY }; }
+
+    // Called once at boot. Confirms the project is really there before the
+    // sign-in screen claims to be talking to it, and stays quiet either way:
+    // an unreachable backend is not an error to shout about, it is a reason to
+    // fall back to the local gate, which sign-in already does.
+    function autoConnect() {
+        loadConfig();
+        if (cfg.enabled === false || !isConfigured()) return Promise.resolve(false);
+        return ping().then(function () { saveConfig({ enabled: true }); return true; })
+                     .catch(function () { return false; });
+    }
 
     // supabase-js is fetched only when a backend is actually configured, so a
     // file:// copy with no network stays exactly as fast as it was.
@@ -4292,6 +4317,7 @@
         isConfigured: isConfigured, isLive: isLive,
         connect: connect, ping: ping, explain: explain,
         signIn: signIn, signOut: signOut, profile: fetchProfile, myModules: myModules,
+        defaults: defaults, autoConnect: autoConnect,
         createUser: createUser, placeUser: placeUser, listUsers: listUsers,
         sendPasswordReset: sendPasswordReset,
         read: read, insert: insert, update: update, remove: remove,
@@ -8617,20 +8643,12 @@ const FORMULA_VAR_HELP = [
 function backendReady() {
     return typeof BiscsBackend !== 'undefined' && BiscsBackend.isConfigured();
 }
-// Dynamic Engineers' own project, so a fresh browser arrives at the sign-in
-// screen already pointed at the right place instead of asking the person in
-// front of it for a URL and a key. Publishable keys are designed to sit in
-// client code — row-level security is what protects the data — and anything
-// saved in Settings overrides these.
-const SB_DEFAULT_URL = 'https://oacuhjpzivscczjbfewj.supabase.co';
-const SB_DEFAULT_KEY = 'sb_publishable_aJ1MgCcqLyUCufVwXYSnew_7VaYaVqQ';
-
 function renderBackendSettings() {
     if (typeof BiscsBackend === 'undefined') return;
-    const c = BiscsBackend.loadConfig();
+    const c = BiscsBackend.loadConfig(), d = BiscsBackend.defaults();
     const u = document.getElementById('sb-url'), k = document.getElementById('sb-key');
-    if (u && document.activeElement !== u) u.value = c.url || SB_DEFAULT_URL;
-    if (k && document.activeElement !== k) k.value = c.anonKey || SB_DEFAULT_KEY;
+    if (u && document.activeElement !== u) u.value = c.url || d.url;
+    if (k && document.activeElement !== k) k.value = c.anonKey || d.anonKey;
     const badge = document.getElementById('backend-badge');
     if (badge) {
         badge.innerHTML = BiscsBackend.isLive()
@@ -19564,33 +19582,18 @@ function renderWhoBar() {
     }
 }
 
-// Whether the page is somewhere a stranger could be reading it. On a laptop or
-// a private network the first-run credentials are a convenience; on a public
-// address they are the front-door key taped to the door, so they are not shown.
-function onPrivateAddress() {
-    const h = location.hostname;
-    return location.protocol === 'file:' || h === 'localhost' || h === '127.0.0.1' || h === '' ||
-           /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
-}
 function renderAuthNote() {
     const el = document.getElementById('auth-note');
     if (!el) return;
+    // A sign-in screen never tells anyone how to sign in. It used to print the
+    // owner's email and password here, which on a public address is the front
+    // door key taped to the door -- so it says nothing about credentials now,
+    // whoever is looking and wherever the page is being served from.
     if (backendLive()) {
-        el.innerHTML = 'Accounts, roles and what each person can open are decided by your database, ' +
-            'not by this page.';
-        return;
-    }
-    const su = userByEmail(SUPER_EMAIL);
-    if (su && su.mustChangePassword && onPrivateAddress()) {
-        el.innerHTML = 'First run on this browser. Sign in as <strong>' + esc(SUPER_EMAIL) +
-            '</strong> with the password <strong>' + esc(DEFAULT_SUPER_PASSWORD) +
-            '</strong>; you will be asked to replace it straight away.';
-    } else if (su && su.mustChangePassword) {
-        el.innerHTML = 'First run on this browser. Sign in with the owner account for this ' +
-            'installation \u2014 you will be asked to set a new password straight away.';
+        el.innerHTML = 'Accounts are held in your organisation\u2019s database. Your HR administrator ' +
+            'issues them, and nobody can open a screen their account has not been given.';
     } else {
-        el.innerHTML = 'Your HR administrator issues accounts. Nobody can open a screen their ' +
-            'account has not been given.';
+        el.innerHTML = 'Your HR administrator issues accounts. If you do not have one yet, ask them.';
     }
 }
 
@@ -20465,6 +20468,9 @@ function showErpLinkIfNested() {
 // identity registry is read and the sign-in gate is shown.
 window.onload = () => {
     showErpLinkIfNested();
+    if (typeof BiscsBackend !== 'undefined') {
+        BiscsBackend.autoConnect().then(ok => { if (ok) { renderAuthNote(); renderBackendSettings(); } });
+    }
     seedDemoDataIntoDom();
     buildViewRoles();
     initNavGroups();
