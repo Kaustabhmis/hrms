@@ -520,7 +520,7 @@
            answering where the work happens. */
         .how-box { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 11px;
             padding: 16px 20px; margin-bottom: 20px; font-size: 0.86rem; color: #0c4a6e; }
-        .how-box strong { display: block; margin-bottom: 8px; font-size: 0.9rem; }
+        .how-box > strong { display: block; margin-bottom: 8px; font-size: 0.9rem; }
         .how-box ol { margin: 0; padding-left: 20px; }
         .how-box li { margin-bottom: 5px; line-height: 1.6; }
         .how-box li:last-child { margin-bottom: 0; }
@@ -738,6 +738,7 @@
             <div class="nav-item" data-role="admin" onclick="navigate('whatsapp')">💬 WhatsApp Zero-App</div>
 
             <div class="nav-label" data-role="admin manager employee">System</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('provider-users')">🔑 Logins &amp; Access</div>
             <div class="nav-item" data-role="admin" onclick="navigate('settings')">⚙️ Settings</div>
 
             <!-- MANAGER MENUS -->
@@ -831,15 +832,16 @@
             <!-- USERS & ACCESS -->
             <section id="view-provider-users" class="view-section">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:15px; flex-wrap:wrap;">
-                    <div>
+                    <div id="provider-users-head">
                         <h2>Users &amp; Access</h2>
                         <p style="font-size: 0.9rem; color: var(--text-muted);">Access is granted per email address. A user's modules are what their company is licensed for, narrowed to what their own account is granted.</p>
                     </div>
                     <div style="display:flex; gap:8px; flex-wrap:wrap;">
                         <button class="btn btn-outline" onclick="exportUserRegister()">⬇️ Access Register (CSV)</button>
-                        <button class="btn btn-primary" onclick="openUserEditor('')">+ Add User</button>
+                        <button class="btn btn-primary" onclick="openUserEditor('')">+ Add login</button>
                     </div>
                 </div>
+                <div class="how-box" id="provider-users-how"></div>
                 <div class="card">
                     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:15px;">
                         <input type="text" id="user-search" placeholder="Search by name or email…" oninput="renderProviderUsers()" style="max-width:280px;">
@@ -7519,7 +7521,14 @@ const VIEW_TITLES = {
 };
 function setTopbarTitle(viewId) {
     const titleEl = document.getElementById('topbar-title');
-    if (VIEW_TITLES[viewId] && titleEl) titleEl.innerText = VIEW_TITLES[viewId];
+    if (!titleEl) return;
+    // One screen, two audiences: the provider is administering an installation,
+    // HR is looking after their own staff's logins. Same page, different name.
+    if (viewId === 'provider-users' && typeof accessScopeCompany === 'function' && accessScopeCompany()) {
+        titleEl.innerText = 'Logins & Access';
+        return;
+    }
+    if (VIEW_TITLES[viewId]) titleEl.innerText = VIEW_TITLES[viewId];
 }
 
 // Role gating runs over the whole document, so rows rendered after a role change
@@ -19096,6 +19105,10 @@ function canAccessModule(key) {
 }
 function canAccessView(viewId) {
     if (!session) return false;
+    // Who-can-see-what is HR's job as much as the provider's -- otherwise every
+    // change to one person's access has to come back through us. HR sees its own
+    // company's accounts and nobody else's; the database enforces that, not this.
+    if (viewId === 'provider-users') return session.role === 'super' || isControlRole(session.role);
     if (PROVIDER_VIEWS.indexOf(viewId) !== -1) return session.role === 'super';
     const key = VIEW_MODULE[viewId];
     if (!key) return true;               // an untagged screen is not module-gated
@@ -19169,6 +19182,8 @@ const HOME_ACTIONS = [
       blurb: 'Every payslip the system has produced, searchable by person or month.' },
     { view: 'manager-inbox', roles: ['admin', 'manager'], icon: '\u{2705}', title: 'Approvals',
       blurb: 'Leave, expenses and attendance fixes waiting for your yes or no.' },
+    { view: 'provider-users', roles: ['admin'], icon: '\u{1F511}', title: 'Logins & access',
+      blurb: 'Who can sign in, and which parts of the system each of them sees.' },
     { view: 'settings',   roles: ['admin'], icon: '\u{2699}', title: 'Settings',
       blurb: 'The rules everything else follows \u2014 shifts, leave, salary structure.' },
 
@@ -20032,14 +20047,60 @@ const ROLE_NOTE = {
     admin: 'The same control as HR. Use it for a second administrator.',
     employee: 'Self-service only. Somebody with people reporting to them also gets the approval inbox, automatically.'
 };
+// HR manages one company; the provider manages all of them. Everything below
+// asks this rather than checking the role in six places.
+function accessScopeCompany() {
+    return (session && session.role !== 'super') ? session.companyId : '';
+}
 function renderProviderUsers() {
+    const scope = accessScopeCompany();
     const filt = document.getElementById('user-company-filter');
     if (filt) {
-        const keep = filt.value;
-        filt.innerHTML = '<option value="">All companies</option>' +
-            '<option value="__provider">Provider (no company)</option>' +
-            companies.map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join('');
-        filt.value = keep;
+        if (scope) {
+            // One company to choose from is not a choice, it is clutter.
+            filt.style.display = 'none';
+            filt.innerHTML = '<option value="' + scope + '"></option>';
+            filt.value = scope;
+        } else {
+            filt.style.display = '';
+            const keep = filt.value;
+            filt.innerHTML = '<option value="">All companies</option>' +
+                '<option value="__provider">Provider (no company)</option>' +
+                companies.map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join('');
+            filt.value = keep;
+        }
+    }
+    const roleFilt = document.getElementById('user-role-filter');
+    if (roleFilt) {
+        const superOpt = roleFilt.querySelector('option[value="super"]');
+        if (superOpt) superOpt.style.display = scope ? 'none' : '';
+    }
+    const how = document.getElementById('provider-users-how');
+    if (how) {
+        how.innerHTML = scope
+            ? '<strong>What this screen does</strong><ol>' +
+              '<li><strong>Add a login</strong> for anyone who needs to sign in. The email is the account.</li>' +
+              '<li><strong>Pick their role.</strong> HR and Admin run the system; everyone else is an employee ' +
+                  'and sees only their own record. Anyone with people reporting to them also gets the approval ' +
+                  'inbox, automatically.</li>' +
+              '<li><strong>Choose what they see.</strong> Leave it on the company default, or untick to hand-pick. ' +
+                  'Whatever you untick vanishes from their menu. The screen warns you what stops working before ' +
+                  'you save.</li></ol>'
+            : '<strong>How access works</strong><ol>' +
+              '<li>The <strong>company licence</strong> sets the ceiling \u2014 nobody in a company can be given ' +
+                  'a module the company does not hold.</li>' +
+              '<li>The <strong>account</strong> narrows it further, per person.</li>' +
+              '<li><strong>HR can do this themselves</strong> for their own company, from the same screen.</li></ol>';
+    }
+    const head = document.getElementById('provider-users-head');
+    if (head) {
+        head.innerHTML = scope
+            ? '<h2>Logins &amp; Access</h2><p style="font-size:0.9rem; color:var(--text-muted);">' +
+              'Everyone at ' + esc(companyName(scope)) + ' who can sign in, and exactly which parts of the ' +
+              'system each of them sees. Untick something and it disappears from their menu.</p>'
+            : '<h2>Users &amp; Access</h2><p style="font-size:0.9rem; color:var(--text-muted);">' +
+              'Access is granted per email address. A user\u2019s modules are what their company is licensed ' +
+              'for, narrowed to what their own account is granted.</p>';
     }
     const tb = document.getElementById('provider-user-table');
     if (!tb) return;
@@ -20051,15 +20112,21 @@ function renderProviderUsers() {
         // are real accounts. The rest stay in this browser as the way back in.
         if (backendLive() && u.localOnly) return false;
         if (q && (u.name + ' ' + u.email).toLowerCase().indexOf(q.toLowerCase()) === -1) return false;
-        if (coF === '__provider' && u.companyId) return false;
-        if (coF && coF !== '__provider' && u.companyId !== coF) return false;
+        if (scope) { if (u.companyId !== scope) return false; }
+        else if (coF === '__provider' && u.companyId) return false;
+        else if (coF && coF !== '__provider' && u.companyId !== coF) return false;
         if (roleF && u.role !== roleF) return false;
         return true;
     });
     if (!rows.length) {
-        const empty = (q || coF || roleF)
+        // The scoped company filter is not a search the person typed, so it must
+        // not turn "nothing here yet" into "nothing matches".
+        const searching = q || roleF || (!scope && coF);
+        const empty = searching
             ? 'No accounts match that search.'
-            : 'No logins yet. Use <strong>+ New account</strong> above to create one for your HR manager.';
+            : scope
+                ? 'Nobody at ' + esc(companyName(scope)) + ' has a login yet. Use <strong>+ Add login</strong> above.'
+                : 'No logins yet. Use <strong>+ Add login</strong> above to create one for your HR manager.';
         tb.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:24px;">' + empty + '</td></tr>';
         return;
     }
@@ -20090,19 +20157,26 @@ function renderProviderUsers() {
 var userDraft = null;
 function openUserEditor(id) {
     const existing = id ? appUsers.find(u => u.id === id) : null;
+    const scope = accessScopeCompany();
+    if (existing && scope && existing.companyId !== scope)
+        return showToast('That account belongs to another company.', 'error');
     userDraft = existing
         ? JSON.parse(JSON.stringify(existing))
-        // A new account starts with everything its company holds; the provider
-        // unticks to narrow it, rather than having to tick a list from nothing.
-        : { id: '', email: '', name: '', role: 'employee', companyId: activeCompanyId, empId: '',
+        // A new account starts with everything its company holds; whoever is
+        // setting it up unticks to narrow it, rather than having to tick a list
+        // from nothing.
+        : { id: '', email: '', name: '', role: 'employee', companyId: scope || activeCompanyId, empId: '',
             modules: [], allModules: true, status: 'Active', newPassword: '' };
-    document.getElementById('user-modal-title').innerText = existing ? 'Access — ' + existing.name : 'Add User';
+    document.getElementById('user-modal-title').innerText =
+        existing ? 'Access \u2014 ' + existing.name : 'Add a login';
     renderUserEditor();
     openModal('modal-user');
 }
 function renderUserEditor() {
     const d = userDraft;
     if (!d) return;
+    const scope = accessScopeCompany();
+    if (scope) { d.companyId = scope; if (d.role === 'super') d.role = 'employee'; }
     const isSuper = d.role === 'super';
     const lic = isSuper ? ALL_MODULE_KEYS.slice() : licensedModules(d.companyId);
     const granted = isSuper || d.allModules ? lic.slice() : expandModules(d.modules).filter(k => lic.indexOf(k) !== -1);
@@ -20118,10 +20192,17 @@ function renderUserEditor() {
                 d.id ? 'The email identifies the account and cannot be changed.' : 'Sign-in is by email. It must be unique across the installation.') +
             field('Full name', '<input type="text" id="us-name" value="' + esc(d.name) + '" placeholder="Full name">') +
             field('Role', '<select id="us-role" onchange="onUserRoleChange(this.value)">' +
-                Object.keys(ROLE_LABEL).map(r => '<option value="' + r + '"' + (d.role === r ? ' selected' : '') + '>' + ROLE_LABEL[r] + '</option>').join('') + '</select>',
+                Object.keys(ROLE_LABEL).filter(r => r !== 'super' || !scope)
+                    .map(r => '<option value="' + r + '"' + (d.role === r ? ' selected' : '') + '>' + ROLE_LABEL[r] + '</option>').join('') + '</select>',
                 ROLE_NOTE[d.role] || '') +
-            (isSuper ? '' : field('Company', '<select id="us-company" onchange="onUserCompanyChange(this.value)">' +
-                companies.map(c => '<option value="' + c.id + '"' + (d.companyId === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select>')) +
+            (isSuper ? '' : field('Company',
+                scope
+                    // One company, fixed: shown so it is clear who this account
+                    // belongs to, not editable because HR has only the one.
+                    ? '<input type="hidden" id="us-company" value="' + esc(scope) + '">' +
+                      '<input type="text" value="' + esc(companyName(scope)) + '" readonly style="background:var(--bg-main);">'
+                    : '<select id="us-company" onchange="onUserCompanyChange(this.value)">' +
+                      companies.map(c => '<option value="' + c.id + '"' + (d.companyId === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select>')) +
             (isSuper ? '' : field('Employee record', '<select id="us-emp">' + empOptions + '</select>',
                 'Links the account to a person so the self-service screens show their own data.')) +
             field('Status', '<select id="us-status">' + ['Active', 'Suspended'].map(s =>
@@ -20236,6 +20317,13 @@ function toggleUserModule(key, on) {
 function saveUser() {
     captureUserFields();
     const d = userDraft;
+    // The form is not the authority. HR only ever writes accounts in its own
+    // company, and only the provider makes another provider.
+    const scope = accessScopeCompany();
+    if (scope) {
+        if (d.role === 'super') return showToast('Only the provider can create a provider account.', 'error');
+        d.companyId = scope;
+    }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email)) return showToast('That is not a valid email address.', 'error');
     if (!d.name) return showToast('The account needs a name.', 'error');
     if (d.role !== 'super' && !d.companyId) return showToast('Pick the company this account belongs to.', 'error');
@@ -20380,6 +20468,8 @@ function deleteUser() {
     const d = userDraft;
     const user = d && d.id ? appUsers.find(u => u.id === d.id) : null;
     if (!user) return;
+    const scope = accessScopeCompany();
+    if (scope && user.companyId !== scope) return showToast('That account belongs to another company.', 'error');
     if (user.email === SUPER_EMAIL) return showToast('The owner account cannot be deleted.', 'error');
     if (session && session.email === user.email) return showToast('You cannot delete the account you are signed in with.', 'error');
     if (backendLive() && user.remote) {
@@ -20510,8 +20600,14 @@ function submitPasswordChange() {
 function accessGuard(viewId) {
     if (!session) return false;
     const label = VIEW_TITLES[viewId] || viewId;
-    if (PROVIDER_VIEWS.indexOf(viewId) !== -1 && session.role !== 'super') {
+    // The access screen is the one provider screen HR also needs, scoped to its
+    // own company; the rest of the console stays the provider's alone.
+    if (PROVIDER_VIEWS.indexOf(viewId) !== -1 && viewId !== 'provider-users' && session.role !== 'super') {
         showToast('The provider console is only open to a super admin account.', 'error');
+        return false;
+    }
+    if (viewId === 'provider-users' && session.role !== 'super' && !isControlRole(session.role)) {
+        showToast('Logins and access are managed by HR.', 'error');
         return false;
     }
     if (!canAccessView(viewId)) {
