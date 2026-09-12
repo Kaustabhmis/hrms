@@ -475,6 +475,46 @@
             .auth-main { padding: 32px 24px 48px; }
         }
 
+        /* Home — the plain-language landing screen. Big targets, short words,
+           no jargon; someone who has never opened an HR system should be able
+           to work out what to click. */
+        .home-hello { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.4px; margin-bottom: 4px; }
+        .home-sub { color: var(--text-muted); font-size: 0.92rem; margin-bottom: 26px; }
+        .home-h { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
+            color: var(--text-muted); margin: 30px 0 14px; }
+        .home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+        .home-tile { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+            padding: 20px; cursor: pointer; transition: 0.15s; text-align: left; display: block; width: 100%;
+            font-family: inherit; }
+        .home-tile:hover { border-color: var(--primary); transform: translateY(-2px);
+            box-shadow: 0 10px 26px rgba(15,23,42,0.09); }
+        .home-tile .ht-ico { width: 44px; height: 44px; border-radius: 11px; display: flex; align-items: center;
+            justify-content: center; font-size: 1.35rem; background: #eff6ff; margin-bottom: 14px; }
+        .home-tile h4 { font-size: 1rem; font-weight: 700; margin-bottom: 4px; color: var(--text-dark); }
+        .home-tile p { font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; }
+
+        /* Setup checklist — visible only while something is still undone. */
+        .home-setup { background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+            border: 1px solid #ddd6fe; border-radius: 12px; padding: 22px 24px; margin-bottom: 8px; }
+        .home-setup h3 { font-size: 1.05rem; font-weight: 800; margin-bottom: 3px; }
+        .home-setup .hs-lede { font-size: 0.85rem; color: #5b21b6; margin-bottom: 16px; }
+        .hs-steps { display: grid; gap: 8px; }
+        .hs-step { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.75);
+            border: 1px solid rgba(124,58,237,0.14); border-radius: 9px; padding: 11px 14px; font-size: 0.88rem; }
+        .hs-step .hs-tick { width: 22px; height: 22px; border-radius: 50%; flex: none; display: flex;
+            align-items: center; justify-content: center; font-size: 0.72rem; font-weight: 700;
+            background: #e2e8f0; color: var(--text-muted); }
+        .hs-step.done .hs-tick { background: var(--success, #16a34a); color: #fff; }
+        .hs-step.done { opacity: 0.62; }
+        .hs-step .hs-text { flex: 1; }
+        .hs-step .hs-text small { display: block; color: var(--text-muted); font-size: 0.76rem; margin-top: 1px; }
+        .hs-step button { flex: none; }
+        .home-glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+        .home-stat { background: var(--bg-card); border: 1px solid var(--border); border-radius: 11px; padding: 16px 18px; }
+        .home-stat .hg-val { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
+        .home-stat .hg-lab { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+        .nav-item.nav-home { margin-bottom: 6px; }
+
         /* Topbar identity chip — replaces the old role simulator. */
         .who { display: flex; align-items: center; gap: 10px; padding: 4px 10px 4px 4px; border: 1px solid var(--border);
             border-radius: 999px; background: var(--bg-main); }
@@ -609,6 +649,8 @@
         </div>
         <a href="../../index.html" class="back-to-erp" id="back-to-erp" style="display:none;">← Back to MAX ERP</a>
         <div class="nav-items" id="sidebar-nav">
+
+            <div class="nav-item nav-home" data-role="admin manager employee" onclick="navigate('home')">&#127968; Home</div>
 
             <!-- PROVIDER / SUPER ADMIN -->
             <div class="nav-label" data-role="super" style="display:none;">Provider Console</div>
@@ -941,6 +983,18 @@
             <!-- ========================================== -->
             <!-- ADMIN MODULES                              -->
             <!-- ========================================== -->
+
+            <!-- 0. HOME -->
+            <!-- The landing screen. Everything else in this file is a specialist
+                 tool; this is the one page that assumes you have never seen the
+                 system before and tells you what to do next in plain words. -->
+            <section id="view-home" class="view-section">
+                <div id="home-greeting"></div>
+                <div id="home-setup"></div>
+                <h3 class="home-h">What do you want to do?</h3>
+                <div id="home-actions" class="home-grid"></div>
+                <div id="home-glance"></div>
+            </section>
 
             <!-- 1. DASHBOARD -->
             <section id="view-dashboard" class="view-section active">
@@ -7412,6 +7466,7 @@ const VIEW_TITLES = {
         'ess-expenses': 'My Expenses', 'ess-benefits': 'My Benefits & GMC', 'ess-performance': 'My OKRs & Appraisals', 'ess-helpdesk': 'My Helpdesk Tickets',
         'ess-learning': 'Learning & Courses', 'ess-engagement': 'Surveys & Feedback', 'ess-payslips': 'My Payslips', 'ess-tax': 'Tax Declarations', 'ess-directory': 'Peer Directory',
         'manager-inbox': 'Approval Inbox',
+        'home': 'Home',
         'provider-companies': 'Companies & Licensing', 'provider-users': 'Users & Access Control',
         'provider-modules': 'Module Catalog', 'provider-log': 'Provisioning Log'
 };
@@ -7436,7 +7491,8 @@ function applyRoleVisibility() {
         else if (roles.indexOf('manager') !== -1 && isApprover()) allowed = true;
         else if (roles.indexOf('employee') !== -1) allowed = true;
         else allowed = currentRole === 'super';
-        if (!allowed) { el.style.display = 'none'; return; }
+        if (!allowed) { el.style.display = 'none'; el.dataset.roleHidden = '1'; return; }
+        el.dataset.roleHidden = '0';
         // Restore the display each element type expects when it is allowed.
         if (el.classList.contains('nav-label')) el.style.display = 'flex';
         else if (el.classList.contains('nav-item')) el.style.display = 'flex';
@@ -7469,6 +7525,7 @@ function navigateProgrammatic(viewId) {
 // Per-view refresh, shared by navigate() and navigateProgrammatic().
 function runViewHooks(viewId) {
     if (viewId === 'provider-companies') renderProviderCompanies();
+    if (viewId === 'home') renderHome();
     if (viewId === 'provider-users') {
         renderProviderUsers();
         // Ask the database what accounts exist, once per session. Without this
@@ -17051,8 +17108,18 @@ function drillDomebox() {
 const NAV_COLLAPSE_KEY = 'biscs-nav-collapsed-v1';
 var navCollapsed = {};
 function loadNavCollapsed() {
-    try { navCollapsed = JSON.parse(localStorage.getItem(NAV_COLLAPSE_KEY) || '{}') || {}; }
-    catch (err) { navCollapsed = {}; }
+    try {
+        const raw = localStorage.getItem(NAV_COLLAPSE_KEY);
+        if (raw) { navCollapsed = JSON.parse(raw) || {}; return; }
+    } catch (err) { /* storage off; fall through to the default */ }
+    // Nothing chosen yet. Seventy items down one rail is why this system felt
+    // confusing, so every group starts folded: the sidebar opens as a short
+    // list of headings, and you open the one you want. Whichever group holds
+    // the current screen unfolds itself, and the choice is remembered after.
+    navCollapsed = {};
+    document.querySelectorAll('#sidebar-nav .nav-label').forEach(label => {
+        navCollapsed[navGroupKey(label)] = true;
+    });
 }
 function saveNavCollapsed() {
     try { localStorage.setItem(NAV_COLLAPSE_KEY, JSON.stringify(navCollapsed)); } catch (err) { /* storage off */ }
@@ -19005,7 +19072,11 @@ function applyAccessVisibility() {
         if (!m) return;
         el.dataset.view = m[1];
         el.dataset.module = VIEW_MODULE[m[1]] || '';
-        if (el.style.display === 'none') { el.dataset.gatedOut = '1'; return; }
+        // Ask why it is hidden, never just whether. A folded group hides its
+        // items exactly the way a role gate does, and reading the style could
+        // not tell the two apart -- which quietly emptied every heading the
+        // moment the menu started folded.
+        if (el.dataset.roleHidden === '1') { el.dataset.gatedOut = '1'; return; }
         if (!canAccessView(m[1])) { el.style.display = 'none'; el.dataset.gatedOut = '1'; return; }
         el.dataset.gatedOut = '0';
     });
@@ -19018,7 +19089,7 @@ function applyAccessVisibility() {
             let any = false;
             for (let j = i + 1; j < kids.length; j++) {
                 if (kids[j].classList.contains('nav-label')) break;
-                if (kids[j].classList.contains('nav-item') && kids[j].style.display !== 'none') { any = true; break; }
+                if (kids[j].classList.contains('nav-item') && kids[j].dataset.gatedOut !== '1') { any = true; break; }
             }
             el.style.display = any ? 'flex' : 'none';
         });
@@ -19030,17 +19101,167 @@ function applyAccessVisibility() {
 }
 
 // The landing screen is the first thing this account can actually open.
-function firstAccessibleView() {
-    if (!session) return 'dashboard';
-    if (session.role === 'super') return 'provider-companies';
-    const order = isControlRole(session.role)
-        ? ['dashboard', 'directory', 'feed', 'payroll', 'attendance']
-        : (isApprover(session.role) ? ['manager-inbox', 'ess-profile', 'feed'] : ['ess-profile', 'feed', 'ess-attendance', 'ess-leaves', 'ess-payslips']);
-    const hit = order.find(v => canAccessView(v));
-    if (hit) return hit;
-    const nav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.style.display !== 'none' && el.dataset.view);
-    return nav ? nav.dataset.view : 'dashboard';
+// ==========================================================================
+// HOME
+// Every other screen in this file assumes you already know what you are doing.
+// This one does not. It asks one question -- what do you want to do? -- answers
+// it with a handful of big buttons in the words people actually use, and, until
+// the system is set up, says exactly which step is next.
+// ==========================================================================
+
+// A tile appears only if the person's role allows the screen AND their company
+// holds the module, so nobody is ever offered a button that then refuses them.
+const HOME_ACTIONS = [
+    { view: 'provider-users',  roles: ['super'], icon: '\u{1F511}', title: 'Create a login',
+      blurb: 'Give your HR manager or an office admin their own email and password.' },
+    { view: 'provider-companies', roles: ['super'], icon: '\u{1F3E2}', title: 'Companies',
+      blurb: 'Add a company and choose which parts of the system it may use.' },
+    { view: 'directory',  roles: ['admin'], icon: '\u{1F465}', title: 'People',
+      blurb: 'Everyone on the payroll. Open a person to see or change their details.' },
+    { view: 'import',     roles: ['admin'], icon: '\u{1F4E5}', title: 'Add people',
+      blurb: 'Add one person, or bring in a whole list from a spreadsheet.' },
+    { view: 'essl',       roles: ['admin'], icon: '\u{1F5A5}', title: 'Get attendance',
+      blurb: 'Pull punches from the eSSL machine, or upload the file it exports.' },
+    { view: 'attendance', roles: ['admin'], icon: '\u{1F5D3}', title: 'Attendance register',
+      blurb: 'Who was in, who was late, who was absent \u2014 day by day.' },
+    { view: 'payroll',    roles: ['admin'], icon: '\u{1F4B0}', title: 'Run salary',
+      blurb: 'Work out this month\u2019s pay, check it, then release the payslips.' },
+    { view: 'payslips',   roles: ['admin'], icon: '\u{1F4C4}', title: 'Payslips',
+      blurb: 'Every payslip the system has produced, searchable by person or month.' },
+    { view: 'manager-inbox', roles: ['admin', 'manager'], icon: '\u{2705}', title: 'Approvals',
+      blurb: 'Leave, expenses and attendance fixes waiting for your yes or no.' },
+    { view: 'settings',   roles: ['admin'], icon: '\u{2699}', title: 'Settings',
+      blurb: 'The rules everything else follows \u2014 shifts, leave, salary structure.' },
+
+    { view: 'ess-attendance', roles: ['employee'], self: true, icon: '\u{1F5D3}', title: 'My attendance',
+      blurb: 'Your punches and your monthly summary.' },
+    { view: 'ess-leaves',  roles: ['employee'], self: true, icon: '\u{1F334}', title: 'Apply for leave',
+      blurb: 'Ask for time off and see how much you have left.' },
+    { view: 'ess-payslips', roles: ['employee'], self: true, icon: '\u{1F4B8}', title: 'My payslips',
+      blurb: 'Download any month\u2019s payslip.' },
+    { view: 'ess-expenses', roles: ['employee'], self: true, icon: '\u{1F9FE}', title: 'Claim an expense',
+      blurb: 'Send a bill in for reimbursement.' },
+    { view: 'ess-requests', roles: ['employee'], self: true, icon: '\u{1F4E8}', title: 'My requests',
+      blurb: 'Everything you have asked for, and where it has got to.' },
+    { view: 'ess-profile', roles: ['employee'], self: true, icon: '\u{1F464}', title: 'My details',
+      blurb: 'Your record, documents and bank details.' }
+];
+
+function homeActionAllowed(a) {
+    if (!session) return false;
+    if (a.roles.indexOf('super') !== -1) return session.role === 'super';
+    // The self-service screens are about your own record. An account with no
+    // employee record behind it -- the provider login, typically -- would open
+    // them onto nothing, so it is not offered them.
+    if (a.self && !session.empId) return false;
+    if (!roleMayOpen(a.view)) return false;
+    return canAccessView(a.view);
 }
+
+function greetingWord() {
+    const h = new Date().getHours();
+    return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+// The steps that turn a demo into a system that runs your payroll. Each one
+// knows whether it is done and where to go to do it, so "what now?" always has
+// an answer on the screen rather than in somebody's head.
+function homeSetupSteps() {
+    const co = session && session.companyId ? companyById(session.companyId) : null;
+    const realPeople = employees.filter(e => !e.isSeed).length || employees.length;
+    const mapped = typeof esslConfig !== 'undefined'
+        ? Object.keys(esslConfig.map || {}).filter(k => empById(esslConfig.map[k])).length : 0;
+    const runs = Object.keys(payrollPeriods).filter(k => (payrollPeriods[k] || {}).status === 'Executed').length;
+    const steps = [];
+    if (session && session.role === 'super') {
+        steps.push({ done: backendLive(), title: 'Connect the database',
+            hint: 'Until this is on, everything lives in one browser and nothing is shared.',
+            go: () => openSettings('backend'), cta: 'Connect' });
+        steps.push({ done: appUsers.filter(u => u.role !== 'super' && !u.localOnly).length > 0,
+            title: 'Create a login for your HR manager',
+            hint: 'They get their own email and password, and see only what you allow.',
+            go: () => navigate('provider-users'), cta: 'Create' });
+    }
+    steps.push({ done: realPeople > 0, title: 'Add your people',
+        hint: 'One at a time, or a whole spreadsheet at once.',
+        go: () => navigate('import'), cta: 'Add' });
+    steps.push({ done: mapped > 0, title: 'Match the attendance machine to your staff',
+        hint: 'Tell the system which machine number belongs to which person.',
+        go: () => openSettings('devices'), cta: 'Match' });
+    steps.push({ done: runs > 0, title: 'Run your first salary',
+        hint: 'Pick a month, check the figures, then release the payslips.',
+        go: () => navigate('payroll'), cta: 'Open' });
+    return steps.filter(st => st.title === 'Connect the database' || co !== null || session.role === 'super' || true);
+}
+
+var homeStepHandlers = [];
+
+function renderHome() {
+    if (!session) return;
+    const hello = document.getElementById('home-greeting');
+    if (hello) {
+        const who = esc((session.name || '').split(' ')[0] || 'there');
+        hello.innerHTML = '<div class="home-hello">' + greetingWord() + ', ' + who + '.</div>' +
+            '<div class="home-sub">' + esc(prettyDate(DEMO_TODAY)) +
+            (session.role === 'super' ? '' : ' \u00b7 ' + esc(companyName(session.companyId) || '')) + '</div>';
+    }
+
+    // Setup checklist: on screen only while there is still something to do.
+    const setup = document.getElementById('home-setup');
+    if (setup) {
+        const steps = homeSetupSteps();
+        const left = steps.filter(st => !st.done).length;
+        if (!left || !isControlRole(session.role)) {
+            setup.innerHTML = '';
+        } else {
+            homeStepHandlers = steps.map(st => st.go);
+            setup.innerHTML = '<div class="home-setup"><h3>Getting started</h3>' +
+                '<div class="hs-lede">' + (steps.length - left) + ' of ' + steps.length +
+                ' done \u2014 here is what is left.</div><div class="hs-steps">' +
+                steps.map((st, i) => '<div class="hs-step' + (st.done ? ' done' : '') + '">' +
+                    '<span class="hs-tick">' + (st.done ? '\u2713' : (i + 1)) + '</span>' +
+                    '<span class="hs-text">' + esc(st.title) + '<small>' + esc(st.hint) + '</small></span>' +
+                    (st.done ? '' : '<button class="btn btn-primary" style="padding:5px 13px; font-size:0.78rem;" ' +
+                        'onclick="homeStepHandlers[' + i + ']()">' + esc(st.cta) + '</button>') +
+                    '</div>').join('') + '</div></div>';
+        }
+    }
+
+    // The buttons themselves.
+    const grid = document.getElementById('home-actions');
+    if (grid) {
+        const tiles = HOME_ACTIONS.filter(homeActionAllowed);
+        grid.innerHTML = tiles.length ? tiles.map(a =>
+            '<button class="home-tile" onclick="navigate(\'' + a.view + '\')">' +
+            '<div class="ht-ico">' + a.icon + '</div><h4>' + esc(a.title) + '</h4>' +
+            '<p>' + esc(a.blurb) + '</p></button>').join('')
+            : '<div class="card">Nothing has been switched on for your account yet. Ask your HR administrator.</div>';
+    }
+
+    // A few numbers, only for the people whose job they are.
+    const glance = document.getElementById('home-glance');
+    if (glance) {
+        if (!isControlRole(session.role)) { glance.innerHTML = ''; return; }
+        const present = employees.filter(e => {
+            const st = todayStatusOf(e.id, DEMO_TODAY);
+            return st === 'Present' || st === 'Late' || st === 'WFH';
+        }).length;
+        const period = payrollPeriods[activePayrollPeriod] || {};
+        glance.innerHTML = '<h3 class="home-h">Today</h3><div class="home-glance">' +
+            '<div class="home-stat"><div class="hg-val">' + employees.length + '</div>' +
+            '<div class="hg-lab">People on the payroll</div></div>' +
+            '<div class="home-stat"><div class="hg-val">' + present + '</div>' +
+            '<div class="hg-lab">In today</div></div>' +
+            '<div class="home-stat"><div class="hg-val">' + esc(period.status || 'Not started') + '</div>' +
+            '<div class="hg-lab">Salary for ' + esc(activePayrollPeriod) + '</div></div>' +
+            '</div>';
+    }
+}
+
+// Everyone lands on Home, whatever their role. Home itself only offers what
+// that account may open, so there is no longer a different front door per role
+// -- there is one front door with different doors behind it.
+function firstAccessibleView() { return 'home'; }
 
 function renderLicenceBanner() {
     const el = document.getElementById('licence-banner');
