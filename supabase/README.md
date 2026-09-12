@@ -38,28 +38,27 @@ password somewhere — you will not be shown it again.
 **Dashboard → SQL Editor → New query.** Paste **`supabase/setup.sql`** — the
 whole file, one paste — and run it.
 
-It ends by telling you whether it worked:
+It ends with a report you can read:
 
-```
-===========================================================
- BISCS HRMS — setup report
-===========================================================
- tables        : 27
- policies      : 67
- modules       : 30 (with 20 dependencies)
- auth          : linked to Supabase Auth
- tenant tables : all protected by row-level security
+| status | what | found | note |
+|---|---|---|---|
+| OK | Tables | 27 | expected 27 |
+| OK | Row-level security policies | 67 | expected 67 |
+| OK | Modules in the catalog | 30 | expected 30 |
+| OK | Module dependencies | 20 | expected 20 |
+| OK | Tenant tables left unprotected | none | expected none |
+| OK | Linked to Supabase Auth | yes | expected yes |
+| OK | Auto-create app_users on signup | yes | expected yes |
 
- Looks right. Next:
-   1. Authentication -> Users -> Add user (tick Auto Confirm)
-   2. select bootstrap_owner('you@company.com','Your Company Ltd','YCL');
-   3. In the HRMS: Settings -> Backend -> project URL + anon key
-===========================================================
-```
+The row that matters is **tenant tables left unprotected**. Anything other than
+`none` means a table carrying `company_id` is readable by anyone — the failure
+that otherwise looks exactly like success.
 
-The line that matters is **tenant tables**. If any table carrying `company_id`
-is not protected, that report says so as a warning rather than letting it pass
-quietly — which is the failure that would otherwise look exactly like success.
+> **The Supabase SQL Editor shows only result sets.** It silently discards
+> `NOTICE` output, so a report written that way is invisible there — which is
+> why the report above is a `SELECT`. If the editor says only *"Success. No rows
+> returned"*, the script ran but you are looking at the wrong end of it: run
+> **`verify.sql`** to see the table.
 
 Running it again is safe: it repairs rather than breaks, and prints the same
 report. Verified by running it twice over one database and by rebuilding from
