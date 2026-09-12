@@ -201,6 +201,40 @@ Sign in as an ordinary employee and try to reach the directory. You should get
 nothing — and the interesting part is that the rows never leave the database,
 so it is not the page choosing to hide them.
 
+## Signing in once it is connected
+
+With the backend configured, the sign-in gate stops checking the browser and
+checks Postgres. The account, its role, its company and the modules it may open
+all come back from the database — this page cannot grant itself anything, which
+is the whole point of moving them.
+
+The topbar says which mode you are in: a 🗄️ and *"checked by the database"*
+when the backend is answering, a 🏢 when it is the local gate.
+
+Three behaviours worth knowing:
+
+- **Refused and unreachable are different.** A wrong password says so. A backend
+  that cannot be reached says *that*, and offers the local gate meanwhile —
+  a network problem must never look like a rejected password.
+- **Signing out ends the Supabase session too**, not only the local one.
+- **With no backend configured it behaves exactly as before**, so a copy opened
+  from a file still works with nothing behind it.
+
+### What is connected, and what is not
+
+| | |
+|---|---|
+| Identity, role, company, entitlement | **Postgres** — enforced by row-level security |
+| Companies and licences shown in the provider console | **Postgres** — read on sign-in |
+| Employees, attendance, payroll, leave, everything else | **still the browser** |
+
+So connecting the backend gets you real authentication and a real access model
+straight away. It does not yet move the HR data, which is the next piece of
+work: each collection routed through the adapter, screen by screen, starting
+with employees. Until then the module keeps its own copy, and the security
+model that actually protects payroll is the browser one.
+
+
 ## How the gates work
 
 | Gate | Where it lives |
@@ -287,9 +321,9 @@ And the refusals:
 
 ## What is deliberately not done yet
 
-- **The module still reads its own collections.** The adapter (`modules/hrms/lib/supabase-adapter.js`)
-  gives the module `read`/`insert`/`update`/`remove` against these tables and
-  handles auth, but the ~89 in-memory collections are not yet routed through it.
+- **The module still reads its own collections.** Sign-in, identity and
+  entitlement now go through the database, but the ~89 in-memory HR collections
+  do not.
   That migration is screen by screen — employees first, then attendance, then
   payroll — and the module keeps working throughout because the adapter falls
   back to local storage whenever a backend is not configured.

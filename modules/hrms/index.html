@@ -18712,8 +18712,31 @@ function signIn() {
     const pass = String(passEl.value || '');
     authError('');
     if (!email || !pass) return authError('Enter your email and password.');
-    const user = userByEmail(email);
     btn.disabled = true;
+
+    // With a backend configured, the database decides. The local path below is
+    // the fallback for a copy running from a file with nothing behind it.
+    if (backendLive()) {
+        authError('');
+        return signInViaBackend(email, pass).then(res => {
+            btn.disabled = false;
+            startRemoteSession(res.user, res.modules);
+        }).catch(err => {
+            btn.disabled = false;
+            passEl.value = '';
+            const msg = String(err && err.message || err);
+            if (/could not reach|network|fetch/i.test(msg)) {
+                // Unreachable is not the same as refused, and must not look like it.
+                authError('Cannot reach the backend. ' + esc(msg) +
+                    '<br><br>You can still sign in with a local account while it is down.');
+            } else {
+                provLog('Sign-in refused', email, msg);
+                authError(esc(msg));
+            }
+        });
+    }
+
+    const user = userByEmail(email);
     // The same message either way, so the form does not say which addresses exist.
     const refuse = (why) => {
         btn.disabled = false;
@@ -18740,6 +18763,81 @@ function signIn() {
         btn.disabled = false;
         startSession(user);
     });
+}
+
+// --- Signing in against Supabase ----------------------------------------
+// With a backend configured, the account is checked by Postgres and the answer
+// to "who is this and what may they open" comes back from the database rather
+// than from anything this page decided. Without one, the local gate is used
+// exactly as before — so the module still runs from a file with no network.
+function backendLive() {
+    return typeof BiscsBackend !== 'undefined' && BiscsBackend.isConfigured() &&
+           (BiscsBackend.loadConfig().enabled !== false);
+}
+function signInViaBackend(email, password) {
+    return BiscsBackend.signIn(email, password).then(profile => {
+        return BiscsBackend.myModules().then(mods => ({ profile: profile, modules: mods || [] }));
+    }).then(res => {
+        const p = res.profile;
+        // Mirror the account locally so every existing screen, which reads
+        // appUsers and companies, keeps working unchanged.
+        let u = userByEmail(p.email);
+        if (!u) {
+            u = { id: p.id, email: p.email, name: p.name, role: p.role,
+                  companyId: p.company_id || '', empId: p.employee_id || '',
+                  modules: res.modules, allModules: !!p.all_modules, status: p.status,
+                  createdOn: DEMO_TODAY, lastSignIn: '', salt: '', hash: '', algo: '', remote: true };
+            appUsers.push(u);
+        } else {
+            Object.assign(u, { name: p.name, role: p.role, companyId: p.company_id || '',
+                empId: p.employee_id || '', allModules: !!p.all_modules, status: p.status,
+                modules: res.modules, remote: true, mustChangePassword: false });
+        }
+        return BiscsBackend.read('companies').then(rows => {
+            (rows || []).forEach(r => {
+                let c = companies.find(x => x.id === r.id);
+                const mapped = { id: r.id, name: r.name, code: r.code, industry: r.industry || '',
+                    status: r.status, plan: r.plan, seats: r.seats || 0,
+                    activeFrom: r.active_from || '', validTill: r.valid_till || '',
+                    contact: r.contact || '', notes: r.notes || '', modules: [], remote: true };
+                if (c) Object.assign(c, mapped); else companies.push(mapped);
+            });
+            return BiscsBackend.read('company_modules').then(cm => {
+                (cm || []).forEach(x => {
+                    const c = companies.find(y => y.id === x.company_id);
+                    if (c && c.modules.indexOf(x.module_key) === -1) c.modules.push(x.module_key);
+                });
+                return { user: u, modules: res.modules };
+            }).catch(() => ({ user: u, modules: res.modules }));
+        }).catch(() => ({ user: u, modules: res.modules }));
+    });
+}
+// Start a session whose entitlement came from the database, not from here.
+function startRemoteSession(user, modules) {
+    user.lastSignIn = new Date().toLocaleString('en-GB');
+    session = {
+        email: user.email, name: user.name, role: user.role,
+        companyId: user.role === 'super' ? (user.companyId || activeCompanyId) : user.companyId,
+        modules: modules, userId: user.id, remote: true
+    };
+    if (session.companyId && session.companyId !== activeCompanyId) {
+        activeCompanyId = session.companyId;
+    }
+    loadTenantData();
+    applySessionRole(user.role);
+    bindIdentityToEmployee(user);
+    renderWhoBar();
+    document.getElementById('auth-gate').style.display = 'none';
+    document.getElementById('auth-pass').value = '';
+    applyRoleVisibility();
+    applyAccessVisibility();
+    if (session.role === 'super') refreshProviderViews();
+    navigateProgrammatic(firstAccessibleView());
+    provLog('Signed in', user.email, user.role + ' · via Supabase');
+    audit('Signed in', user.email + ' · ' + user.role + ' · checked by the database', 'Security');
+    saveIdentity();
+    showToast('Signed in against ' + (companyName(session.companyId) || 'the backend') +
+        ' — ' + modules.length + ' module(s), decided by the database.', 'success');
 }
 
 function startSession(user) {
@@ -18776,6 +18874,7 @@ function signOut() {
     if (session) {
         saveState(true);
         provLog('Signed out', session.email, '');
+        if (session.remote && typeof BiscsBackend !== 'undefined') BiscsBackend.signOut();
     }
     session = null;
     document.getElementById('auth-gate').style.display = 'flex';
@@ -18821,7 +18920,9 @@ function renderWhoBar() {
         } else {
             const c = companyById(session.companyId);
             tn.style.display = c ? 'flex' : 'none';
-            if (c) tn.innerHTML = '🏢 ' + esc(c.name) + ' · ' + esc(c.plan) + ' · ' + session.modules.length + ' modules';
+            if (c) tn.innerHTML = (session.remote ? '🗄️ ' : '🏢 ') + esc(c.name) + ' · ' + esc(c.plan) +
+                ' · ' + session.modules.length + ' modules' +
+                (session.remote ? ' · <span title="Identity and entitlement are decided by Postgres">checked by the database</span>' : '');
         }
     }
     const sub = document.getElementById('topbar-subtitle');
@@ -18834,6 +18935,11 @@ function renderWhoBar() {
 function renderAuthNote() {
     const el = document.getElementById('auth-note');
     if (!el) return;
+    if (backendLive()) {
+        el.innerHTML = 'Signed in against your Supabase project. Accounts, roles and modules are ' +
+            'decided by the database \u2014 this page cannot grant itself anything.';
+        return;
+    }
     const su = userByEmail(SUPER_EMAIL);
     if (su && su.mustChangePassword) {
         el.innerHTML = 'First run on this browser. The owner account <strong>' + esc(SUPER_EMAIL) +
