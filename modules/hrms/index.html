@@ -4000,6 +4000,18 @@
     }
     function signOut() { return SB ? SB.auth.signOut() : Promise.resolve(); }
 
+    // Setting someone else's password needs the secret key and so belongs on a
+    // server, not here. Emailing them a reset link does not, and gets to the
+    // same place without a key that bypasses every policy ever touching a browser.
+    function sendPasswordReset(email) {
+        return connect().then(function (sb) {
+            return sb.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] });
+        }).then(function (r) {
+            if (r && r.error) throw new Error(explain(r.error));
+            return true;
+        });
+    }
+
     // Who the database says this session is. Never what the page thinks.
     function fetchProfile() {
         return SB.auth.getUser().then(function (u) {
@@ -4024,6 +4036,91 @@
                 if (c.error) throw new Error(explain(c.error));
                 return (c.data || []).map(function (x) { return x.module_key; });
             });
+        });
+    }
+
+    // --- creating accounts -------------------------------------------------
+    // Making a login is a two-part job: an auth user, and the app_users row
+    // that says what they are. The trigger in 0004_auth_link.sql does the
+    // second half, reading role, name and company out of the sign-up metadata.
+    //
+    // The obvious way to create a user is the admin API, which needs the secret
+    // key -- and the secret key must never be in a browser. So this signs the
+    // new account up normally instead, on a SECOND client built with
+    // persistSession:false. Without that second client, supabase-js would store
+    // the new user's session over the admin's and whoever was creating the
+    // account would suddenly be the account they just made.
+    function createUser(opts) {
+        return connect().then(function () {
+            if (!global.supabase || !global.supabase.createClient)
+                throw new Error('supabase-js is not loaded.');
+            var tmp = global.supabase.createClient(cfg.url, cfg.anonKey, {
+                auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+            });
+            return tmp.auth.signUp({
+                email: opts.email,
+                password: opts.password,
+                options: { data: {
+                    name: opts.name || '',
+                    role: opts.role || 'employee',
+                    company_id: opts.companyId || ''
+                } }
+            });
+        }).then(function (r) {
+            if (r.error) {
+                var m = r.error.message || '';
+                if (/already registered|already exists/i.test(m))
+                    throw new Error('An account already exists for ' + opts.email + '.');
+                if (/rate limit|too many/i.test(m))
+                    throw new Error('Supabase is rate-limiting new sign-ups. Wait a minute and try again.');
+                if (/password/i.test(m)) throw new Error(m);
+                throw new Error(explain(r.error));
+            }
+            var u = r.data && r.data.user;
+            if (!u) throw new Error('Supabase accepted the sign-up but returned no account.');
+            // Supabase answers an existing address with a decoy user carrying no
+            // identities, so that a stranger cannot use this form to discover who
+            // holds an account. For an admin creating staff logins it is just a
+            // confusing silence, so name it.
+            if (u.identities && u.identities.length === 0)
+                throw new Error('An account already exists for ' + opts.email + '.');
+            return { id: u.id, email: u.email,
+                     needsConfirmation: !r.data.session && !u.email_confirmed_at };
+        });
+    }
+
+    // The trigger files every new account as an unplaced employee unless the
+    // metadata said otherwise, and it cannot know about hand-picked modules at
+    // all. This is the admin's own session correcting the row afterwards, which
+    // row-level security allows only for a provider or a control role in the
+    // same company.
+    function placeUser(id, patch, moduleKeys) {
+        return update('app_users', { id: id }, patch).then(function () {
+            if (!moduleKeys) return true;
+            return remove('user_modules', { user_id: id }).then(function () {
+                if (!moduleKeys.length) return true;
+                return insert('user_modules', moduleKeys.map(function (k) {
+                    return { user_id: id, module_key: k };
+                }));
+            });
+        }).then(function () { return true; });
+    }
+
+    // Every account this session is allowed to see, with its hand-picked
+    // modules attached. RLS decides the rows: a provider gets all of them, HR
+    // gets its own company's, an employee gets only itself.
+    function listUsers() {
+        return read('app_users', { order: 'created_on' }).then(function (users) {
+            return read('user_modules').then(function (links) {
+                var by = {};
+                (links || []).forEach(function (l) {
+                    (by[l.user_id] = by[l.user_id] || []).push(l.module_key);
+                });
+                return (users || []).map(function (u) {
+                    u.modules = by[u.id] || [];
+                    return u;
+                });
+            }).catch(function () { return users || []; });
         });
     }
 
@@ -4069,6 +4166,8 @@
         isConfigured: isConfigured, isLive: isLive,
         connect: connect, ping: ping, explain: explain,
         signIn: signIn, signOut: signOut, profile: fetchProfile, myModules: myModules,
+        createUser: createUser, placeUser: placeUser, listUsers: listUsers,
+        sendPasswordReset: sendPasswordReset,
         read: read, insert: insert, update: update, remove: remove,
         client: function () { return SB; }
     };
@@ -7298,7 +7397,16 @@ function navigateProgrammatic(viewId) {
 // Per-view refresh, shared by navigate() and navigateProgrammatic().
 function runViewHooks(viewId) {
     if (viewId === 'provider-companies') renderProviderCompanies();
-    if (viewId === 'provider-users') renderProviderUsers();
+    if (viewId === 'provider-users') {
+        renderProviderUsers();
+        // Ask the database what accounts exist, once per session. Without this
+        // the screen shows whatever this browser remembers, which is how an
+        // account could look created and then not be there.
+        if (backendLive() && !usersSyncedThisSession) {
+            usersSyncedThisSession = true;
+            syncUsersFromBackend().then(ok => { if (ok) renderProviderUsers(); });
+        }
+    }
     if (viewId === 'provider-modules') renderModuleCatalog();
     if (viewId === 'provider-log') renderProvisioningLog();
     if (viewId === 'directory') renderDirectory();
@@ -18469,6 +18577,8 @@ const VIEW_MODULE = (function () {
     return m;
 })();
 const PROVIDER_VIEWS = ['provider-companies', 'provider-users', 'provider-modules', 'provider-log'];
+// Reset on every sign-in, so a new session re-reads the account list.
+var usersSyncedThisSession = false;
 // Which roles may open which screen, read off the sidebar's own data-role
 // attributes so the guard and the menu can never disagree. A screen with no
 // nav entry of its own is opened from inside another screen and inherits that
@@ -19051,6 +19161,8 @@ function startRemoteSession(user, modules) {
         activeCompanyId = session.companyId;
     }
     loadTenantData();
+    usersSyncedThisSession = true;
+    syncUsersFromBackend().then(ok => { if (ok && session && session.role === 'super') refreshProviderViews(); });
     applySessionRole(user.role);
     bindIdentityToEmployee(user);
     renderWhoBar();
@@ -19518,13 +19630,22 @@ function renderProviderUsers() {
     const coF = (document.getElementById('user-company-filter') || {}).value || '';
     const roleF = (document.getElementById('user-role-filter') || {}).value || '';
     const rows = appUsers.filter(u => {
+        // While the database is the authority, only accounts it actually holds
+        // are real accounts. The rest stay in this browser as the way back in.
+        if (backendLive() && u.localOnly) return false;
         if (q && (u.name + ' ' + u.email).toLowerCase().indexOf(q.toLowerCase()) === -1) return false;
         if (coF === '__provider' && u.companyId) return false;
         if (coF && coF !== '__provider' && u.companyId !== coF) return false;
         if (roleF && u.role !== roleF) return false;
         return true;
     });
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No accounts match.</td></tr>'; return; }
+    if (!rows.length) {
+        const empty = (q || coF || roleF)
+            ? 'No accounts match that search.'
+            : 'No logins yet. Use <strong>+ New account</strong> above to create one for your HR manager.';
+        tb.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:24px;">' + empty + '</td></tr>';
+        return;
+    }
     tb.innerHTML = rows.map(u => {
         const eff = effectiveModules(u);
         const lic = u.role === 'super' ? ALL_MODULE_KEYS : licensedModules(u.companyId);
@@ -19631,7 +19752,7 @@ function renderUserEditor() {
             '<div>' + (d.id && d.email !== SUPER_EMAIL ? '<button class="btn btn-danger" onclick="deleteUser()">Delete account</button>' : '') + '</div>' +
             '<div style="display:flex; gap:10px;">' +
                 '<button class="btn btn-outline" onclick="closeModal(\'modal-user\')">Cancel</button>' +
-                '<button class="btn btn-primary" onclick="saveUser()">' + (d.id ? 'Save access' : 'Create account') + '</button>' +
+                '<button class="btn btn-primary" id="user-save" onclick="saveUser()">' + (d.id ? 'Save access' : 'Create account') + '</button>' +
             '</div>' +
         '</div>';
 }
@@ -19738,6 +19859,26 @@ function saveUser() {
 
     if (existing) {
         ['email', 'name', 'role', 'companyId', 'empId', 'modules', 'allModules', 'status'].forEach(k => { existing[k] = d[k]; });
+        // An account that lives in Postgres has to be changed there, or the
+        // change only holds until the next sign-in re-reads the real row.
+        if (backendLive() && existing.remote) {
+            return BiscsBackend.placeUser(existing.id, {
+                name: d.name, role: d.role,
+                company_id: d.role === 'super' ? null : (d.companyId || null),
+                employee_id: d.empId || null,
+                all_modules: !!d.allModules, status: d.status
+            }, d.allModules ? [] : expandModules(d.modules || [])).then(() => {
+                if (d.newPassword) {
+                    // Nobody can set another person's password from a browser --
+                    // that needs the secret key, which belongs on a server. What
+                    // can be done, safely, is send them a reset link.
+                    return BiscsBackend.sendPasswordReset(existing.email).then(() => {
+                        showToast('A password-reset link has been emailed to ' + existing.email + '.', 'info');
+                    }).catch(err => showToast(String(err && err.message || err), 'error'));
+                }
+            }).then(() => finish(existing, false))
+              .catch(err => showToast(String(err && err.message || err), 'error'));
+        }
         if (d.newPassword) {
             return setUserPassword(existing, d.newPassword).then(() => {
                 provLog('Password reset', existing.email, 'set by provider');
@@ -19752,8 +19893,71 @@ function saveUser() {
         empId: d.empId, modules: d.modules, allModules: d.allModules, status: d.status,
         createdOn: DEMO_TODAY, lastSignIn: '', salt: '', hash: '', algo: ''
     };
+
+    // With a backend live, the account has to exist in Postgres or it is not an
+    // account at all -- it is a row in one browser that nobody else can sign in
+    // with. That was the bug: accounts looked created and then were not there.
+    if (backendLive()) {
+        const btn = document.getElementById('user-save');
+        if (btn) { btn.disabled = true; btn.innerText = 'Creating…'; }
+        const done = () => { if (btn) { btn.disabled = false; btn.innerText = 'Create account'; } };
+        return BiscsBackend.createUser({
+            email: d.email, password: d.newPassword, name: d.name,
+            role: d.role, companyId: d.role === 'super' ? '' : d.companyId
+        }).then(res => {
+            user.id = res.id;
+            user.remote = true;
+            return BiscsBackend.placeUser(res.id, {
+                name: d.name, role: d.role,
+                company_id: d.role === 'super' ? null : (d.companyId || null),
+                employee_id: d.empId || null,
+                all_modules: !!d.allModules, status: d.status
+            }, d.allModules ? [] : expandModules(d.modules || [])).then(() => res);
+        }).then(res => {
+            done();
+            appUsers.push(user);
+            finish(user, true);
+            if (res.needsConfirmation) {
+                showToast(d.email + ' must confirm the email Supabase just sent before they can sign in. ' +
+                    'Turn that off under Authentication → Sign In / Providers if you do not want it.', 'warning');
+            }
+        }).catch(err => {
+            done();
+            showToast(String(err && err.message || err), 'error');
+        });
+    }
+
     appUsers.push(user);
     return setUserPassword(user, d.newPassword).then(() => { user.mustChangePassword = true; finish(user, true); });
+}
+
+// Pull the account list out of Postgres, so Users & Access shows what really
+// exists rather than what this browser happens to remember.
+function syncUsersFromBackend() {
+    if (!backendLive()) return Promise.resolve(false);
+    return BiscsBackend.listUsers().then(rows => {
+        (rows || []).forEach(r => {
+            let u = appUsers.find(x => x.id === r.id) || appUsers.find(x => x.email === r.email);
+            const mapped = {
+                id: r.id, email: r.email, name: r.name, role: r.role,
+                companyId: r.company_id || '', empId: r.employee_id || '',
+                modules: r.modules || [], allModules: !!r.all_modules, status: r.status,
+                createdOn: (r.created_on || '').slice(0, 10), remote: true
+            };
+            if (u) Object.assign(u, mapped); else appUsers.push(Object.assign(mapped, { lastSignIn: '' }));
+        });
+        // Anything this browser remembers that Postgres has never heard of is not
+        // an account -- nobody can sign in with it -- so it is marked rather than
+        // listed. Marked, not deleted: those local rows are the way back in if
+        // the backend is ever unreachable.
+        const known = {};
+        (rows || []).forEach(r => { known[r.id] = true; });
+        appUsers.forEach(u => { u.localOnly = !known[u.id]; });
+        return true;
+    }).catch(err => {
+        showToast('Could not read the account list: ' + String(err && err.message || err), 'error');
+        return false;
+    });
 }
 function deleteUser() {
     const d = userDraft;
@@ -19761,6 +19965,16 @@ function deleteUser() {
     if (!user) return;
     if (user.email === SUPER_EMAIL) return showToast('The owner account cannot be deleted.', 'error');
     if (session && session.email === user.email) return showToast('You cannot delete the account you are signed in with.', 'error');
+    if (backendLive() && user.remote) {
+        if (!confirm('Suspend the account for ' + user.email + '?\n\nThey lose access immediately and every screen closes to them. ' +
+                     'Employee records and history are untouched.\n\nThe login itself stays in Supabase Auth; delete it there if you want it gone for good.')) return;
+        return BiscsBackend.placeUser(user.id, { status: 'Suspended' }, []).then(() => {
+            user.status = 'Suspended'; user.modules = []; user.allModules = false;
+            provLog('Account suspended', user.email, ROLE_LABEL[user.role] + ' · ' + (user.companyId ? companyName(user.companyId) : 'provider'));
+            saveIdentity(); closeModal('modal-user'); refreshProviderViews();
+            showToast(user.email + ' is suspended and cannot sign in.', 'success');
+        }).catch(err => showToast(String(err && err.message || err), 'error'));
+    }
     if (!confirm('Delete the account for ' + user.email + '?\n\nThey lose access immediately. Employee records and history are untouched.')) return;
     appUsers = appUsers.filter(u => u.id !== user.id);
     provLog('Account deleted', user.email, ROLE_LABEL[user.role] + ' · ' + (user.companyId ? companyName(user.companyId) : 'provider'));
