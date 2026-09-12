@@ -490,6 +490,16 @@
         .nav-label .nav-caret { font-size: 0.6rem; opacity: 0.6; transition: transform 0.15s; }
         .nav-label.collapsed .nav-caret { transform: rotate(-90deg); }
 
+        /* A figure you can open. */
+        .card.is-drillable { cursor: pointer; transition: 0.15s; }
+        .card.is-drillable:hover { border-color: var(--primary); box-shadow: 0 4px 14px rgba(37,99,235,0.10); transform: translateY(-2px); }
+        .card.is-drillable .drill-hint { position: absolute; right: 14px; bottom: 12px; font-size: 0.7rem;
+            font-weight: 700; color: var(--primary); opacity: 0; transition: 0.15s; }
+        .card.is-drillable:hover .drill-hint { opacity: 1; }
+        .stat-mini.is-drillable { cursor: pointer; transition: 0.15s; }
+        .stat-mini.is-drillable:hover { border-color: var(--primary); transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(37,99,235,0.10); }
+
     </style>
 </head>
 <body>
@@ -863,25 +873,29 @@
             <!-- 1. DASHBOARD -->
             <section id="view-dashboard" class="view-section active">
                 <div class="grid-4">
-                    <div class="card">
+                    <div class="card is-drillable" onclick="drillHeadcount()" title="Show everyone on roll">
                         <div class="card-header"><h3 style="color: var(--secondary)">Total Headcount</h3></div>
                         <div class="stat-value" id="dash-headcount">0</div>
-                        <div class="badge badge-success">+2 Onboarded</div>
+                        <div class="badge badge-success" id="dash-headcount-sub">On roll</div>
+                        <span class="drill-hint">View list →</span>
                     </div>
-                    <div class="card">
-                        <div class="card-header"><h3 style="color: var(--secondary)">Payroll Run (Apr)</h3></div>
-                        <div class="stat-value" style="color: var(--warning)">Draft</div>
-                        <div class="badge badge-warning">Awaiting Execution</div>
+                    <div class="card is-drillable" onclick="drillPayrollPeriod()" title="Show this period's payroll">
+                        <div class="card-header"><h3 style="color: var(--secondary)" id="dash-payroll-label">Payroll Run</h3></div>
+                        <div class="stat-value" id="dash-payroll-state">--</div>
+                        <div class="badge" id="dash-payroll-sub">--</div>
+                        <span class="drill-hint">View run →</span>
                     </div>
-                    <div class="card">
+                    <div class="card is-drillable" onclick="drillDomebox()" title="Show synced employees">
                         <div class="card-header"><h3 style="color: var(--secondary)">DomeBox API</h3></div>
                         <div class="stat-value" id="dash-domebox">Active</div>
-                        <div class="badge badge-success">Syncing Enabled</div>
+                        <div class="badge badge-success" id="dash-domebox-sub">Syncing Enabled</div>
+                        <span class="drill-hint">View list →</span>
                     </div>
-                    <div class="card">
+                    <div class="card is-drillable" onclick="drillTickets()" title="Show open tickets">
                         <div class="card-header"><h3 style="color: var(--secondary)">Open Tickets</h3></div>
-                        <div class="stat-value" style="color: var(--danger)" id="dash-tickets">1</div>
+                        <div class="stat-value" style="color: var(--danger)" id="dash-tickets">0</div>
                         <div class="badge badge-danger">HR/IT Helpdesk</div>
+                        <span class="drill-hint">View list →</span>
                     </div>
                 </div>
 
@@ -893,13 +907,9 @@
 
                 <div class="grid-3">
                     <div class="card">
-                        <div class="card-header"><h3>Recent Organization Activity</h3></div>
-                        <ul style="list-style:none; font-size:0.9rem; line-height: 2;">
-                            <li>🟢 <strong>Aarav S.</strong> clocked in via Edge Gateway (09:02 AM)</li>
-                            <li>🎫 <strong>Helpdesk:</strong> New IT ticket raised by Priya M.</li>
-                            <li>🔵 <strong>Rahul D.</strong> completed 12 tasks on DomeBox</li>
-                            <li>🎯 <strong>ATS:</strong> Candidate 'Vikram' moved to Interview stage</li>
-                        </ul>
+                        <div class="card-header"><h3>Recent Organization Activity</h3>
+                            <button class="btn btn-outline" style="padding:3px 9px; font-size:0.72rem;" onclick="drillActivity()">See all</button></div>
+                        <ul style="list-style:none; font-size:0.88rem; line-height:1.9;" id="dash-activity"></ul>
                     </div>
 
                     <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
@@ -1915,16 +1925,7 @@
                     <div class="table-container" style="margin-top: 15px;">
                         <table>
                             <thead><tr><th>Employee</th><th>Destination</th><th>Dates</th><th>Type</th><th>Status</th><th>Action</th></tr></thead>
-                            <tbody>
-                                <tr>
-                                    <td><strong>Priya Patel</strong></td>
-                                    <td>Mumbai (BOM)</td>
-                                    <td>20 Apr - 22 Apr</td>
-                                    <td>Flight + Hotel</td>
-                                    <td><span class="badge badge-warning">Requires Booking</span></td>
-                                    <td><button class="btn btn-outline" style="font-size: 0.75rem; padding: 4px 8px;" onclick="showToast('Itinerary marked as booked and tickets sent to employee.', 'success')">Mark Booked</button></td>
-                                </tr>
-                            </tbody>
+                            <tbody id="travel-desk-table"></tbody>
                         </table>
                     </div>
                 </div>
@@ -2651,7 +2652,7 @@
                     </div>
                     <p style="font-weight: bold; font-size:1.1rem;">Aarav Sharma (EMP-001)</p>
                     <p style="font-size: 0.9rem; color: var(--text-muted); margin-top: 5px;"><strong>AI Analysis Trigger:</strong> Detected a 40% drop in DomeBox task completion velocity coupled with 3 unplanned sick leaves on Mondays.</p>
-                    <button class="btn btn-outline" style="margin-top: 15px; border-color: var(--danger); color: var(--danger);" onclick="showToast('Intervention meeting scheduled and calendar invite sent.', 'success')">Schedule 1-on-1 Intervention</button>
+                    <button class="btn btn-outline" style="margin-top: 15px; border-color: var(--danger); color: var(--danger);" onclick="scheduleOneOnOne()">Schedule 1-on-1 Intervention</button>
                 </div>
             </section>
 
@@ -2953,28 +2954,28 @@
                 <div class="grid-2">
                     <div class="card">
                         <h3>New Itinerary Request</h3>
-                        <div class="form-group" style="margin-top: 15px;"><label>Destination</label><input type="text" placeholder="e.g. Mumbai (BOM)"></div>
+                        <div class="form-group" style="margin-top: 15px;"><label>Destination</label><input type="text" id="trv-dest" placeholder="e.g. Mumbai (BOM)"></div>
                         <div class="grid-2" style="margin-bottom: 0; gap: 15px;">
-                            <div class="form-group"><label>Travel Start</label><input type="date"></div>
-                            <div class="form-group"><label>Travel End</label><input type="date"></div>
+                            <div class="form-group"><label>Travel Start</label><input type="date" id="trv-from"></div>
+                            <div class="form-group"><label>Travel End</label><input type="date" id="trv-to"></div>
                         </div>
+                        <div class="form-group"><label>Estimated cost</label><input type="number" id="trv-cost" min="0" placeholder="₹ Amount"></div>
+                        <div class="form-group"><label>Purpose</label><input type="text" id="trv-purpose" placeholder="Client visit, site inspection…"></div>
                         <div class="form-group"><label>Required Services</label>
                             <div style="display: flex; gap: 15px; margin-top: 5px;">
-                                <label style="display: flex; align-items: center; gap: 5px; font-weight: normal; text-transform: none;"><input type="checkbox" style="width:auto;" checked> Flight</label>
-                                <label style="display: flex; align-items: center; gap: 5px; font-weight: normal; text-transform: none;"><input type="checkbox" style="width:auto;" checked> Hotel</label>
-                                <label style="display: flex; align-items: center; gap: 5px; font-weight: normal; text-transform: none;"><input type="checkbox" style="width:auto;"> Cab</label>
+                                <label style="display: flex; align-items: center; gap: 5px; font-weight: normal; text-transform: none;"><input type="checkbox" id="trv-flight" style="width:auto;" checked> Flight</label>
+                                <label style="display: flex; align-items: center; gap: 5px; font-weight: normal; text-transform: none;"><input type="checkbox" id="trv-hotel" style="width:auto;" checked> Hotel</label>
+                                <label style="display: flex; align-items: center; gap: 5px; font-weight: normal; text-transform: none;"><input type="checkbox" id="trv-cab" style="width:auto;"> Cab</label>
                             </div>
                         </div>
-                        <button class="btn btn-primary" onclick="showToast('Travel request submitted to Admin Desk.', 'success')">Submit Request</button>
+                        <button class="btn btn-primary" onclick="submitTravelRequest()">Submit Request</button>
                     </div>
                     <div class="card">
                         <h3>My Travel History</h3>
                         <div class="table-container">
                             <table>
-                                <thead><tr><th>Destination</th><th>Dates</th><th>Status</th></tr></thead>
-                                <tbody>
-                                    <tr><td>Bangalore (BLR)</td><td>10 Mar - 12 Mar</td><td><span class="badge badge-success">Completed</span></td></tr>
-                                </tbody>
+                                <thead><tr><th>Ref</th><th>Destination</th><th>Dates</th><th>Status</th></tr></thead>
+                                <tbody id="ess-travel-table"></tbody>
                             </table>
                         </div>
                     </div>
@@ -3187,19 +3188,11 @@
                     </div>
                     <p style="font-size: 0.95rem; margin-bottom: 15px;">On a scale of 0 to 10, how likely are you to recommend BISCS as a place to work?</p>
                     <div style="display: flex; gap: 5px; margin-bottom: 15px; flex-wrap: wrap;">
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0;">0</button>
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0;">1</button>
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0;">2</button>
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0;">3</button>
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0;">4</button>
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0;">5</button>
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0;">6</button>
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0;">7</button>
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0;">8</button>
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0;">9</button>
-                        <button class="btn btn-outline" style="flex:1; padding:10px 0; background: var(--primary); color: white; border-color: var(--primary);">10</button>
+                        <button class="btn btn-outline enps-btn" data-score="0" style="flex:1; padding:10px 0;" onclick="pickEnps(0)">0</button><button class="btn btn-outline enps-btn" data-score="1" style="flex:1; padding:10px 0;" onclick="pickEnps(1)">1</button><button class="btn btn-outline enps-btn" data-score="2" style="flex:1; padding:10px 0;" onclick="pickEnps(2)">2</button><button class="btn btn-outline enps-btn" data-score="3" style="flex:1; padding:10px 0;" onclick="pickEnps(3)">3</button><button class="btn btn-outline enps-btn" data-score="4" style="flex:1; padding:10px 0;" onclick="pickEnps(4)">4</button><button class="btn btn-outline enps-btn" data-score="5" style="flex:1; padding:10px 0;" onclick="pickEnps(5)">5</button><button class="btn btn-outline enps-btn" data-score="6" style="flex:1; padding:10px 0;" onclick="pickEnps(6)">6</button><button class="btn btn-outline enps-btn" data-score="7" style="flex:1; padding:10px 0;" onclick="pickEnps(7)">7</button><button class="btn btn-outline enps-btn" data-score="8" style="flex:1; padding:10px 0;" onclick="pickEnps(8)">8</button><button class="btn btn-outline enps-btn" data-score="9" style="flex:1; padding:10px 0;" onclick="pickEnps(9)">9</button><button class="btn btn-outline enps-btn" data-score="10" style="flex:1; padding:10px 0;" onclick="pickEnps(10)">10</button>
                     </div>
-                    <button class="btn btn-primary" style="width: 100%;" onclick="showToast('Thank you for your anonymous feedback!', 'success')">Submit Anonymous Feedback</button>
+                    <div class="form-group" style="margin-top:15px;"><label>Anything you want to add (optional)</label>
+                        <textarea id="enps-comment" rows="3" placeholder="Kept anonymous — your name is not stored with it."></textarea></div>
+                    <button class="btn btn-primary" style="width: 100%;" onclick="submitEnps()">Submit Anonymous Feedback</button>
                 </div>
             </section>
 
@@ -3269,11 +3262,11 @@
                             <h3 style="color: var(--primary);">Section 80C Investments</h3>
                             <span style="font-size: 0.8rem; color: var(--text-muted);">Max Cap: ₹1,50,000</span>
                         </div>
-                        <div class="form-group"><label>Life Insurance Premium (LIC)</label><input type="number" placeholder="₹ Amount"></div>
-                        <div class="form-group"><label>Public Provident Fund (PPF)</label><input type="number" placeholder="₹ Amount"></div>
-                        <div class="form-group"><label>ELSS Mutual Funds</label><input type="number" placeholder="₹ Amount"></div>
-                        <div class="progress-bg"><div class="progress-fill" style="width: 45%;"></div></div>
-                        <div style="text-align: right; font-size: 0.8rem; color: var(--text-muted); margin-top: 5px;">₹67,500 Declared</div>
+                        <div class="form-group"><label>Life Insurance Premium (LIC)</label><input type="number" id="dec-lic" min="0" placeholder="₹ Amount" oninput="renderDeclarationTotals()"></div>
+                        <div class="form-group"><label>Public Provident Fund (PPF)</label><input type="number" id="dec-ppf" min="0" placeholder="₹ Amount" oninput="renderDeclarationTotals()"></div>
+                        <div class="form-group"><label>ELSS Mutual Funds</label><input type="number" id="dec-elss" min="0" placeholder="₹ Amount" oninput="renderDeclarationTotals()"></div>
+                        <div class="progress-bg"><div class="progress-fill" id="dec-80c-bar" style="width: 0%;"></div></div>
+                        <div style="text-align: right; font-size: 0.8rem; color: var(--text-muted); margin-top: 5px;" id="dec-80c-total">₹0 declared</div>
                     </div>
                     <div class="card">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -3281,11 +3274,11 @@
                         </div>
                         <div class="form-group">
                             <label>Section 80D (Health Insurance)</label>
-                            <input type="number" placeholder="Max ₹25,000">
+                            <input type="number" id="dec-80d" min="0" placeholder="Max ₹25,000" oninput="renderDeclarationTotals()">
                         </div>
                         <div class="form-group">
                             <label>Section 24 (Home Loan Interest)</label>
-                            <input type="number" placeholder="Max ₹2,00,000">
+                            <input type="number" id="dec-24b" min="0" placeholder="Max ₹2,00,000" oninput="renderDeclarationTotals()">
                         </div>
                         <div class="form-group" style="margin-top: 25px;">
                             <label>Upload Proofs (Zip/PDF)</label>
@@ -3296,7 +3289,8 @@
                     </div>
                 </div>
                 <div style="text-align: right;">
-                    <button class="btn btn-success" onclick="showToast('Tax Declarations saved and submitted for HR review.', 'success')">Submit Declarations</button>
+                    <div id="dec-impact" style="font-size:0.84rem; color:var(--text-muted); margin-bottom:12px;"></div>
+                    <button class="btn btn-success" onclick="submitDeclarations()">Submit Declarations</button>
                 </div>
             </section>
 
@@ -3344,6 +3338,13 @@
     </div>
 
     <!-- --- MODALS --- -->
+    <div class="modal-overlay" id="modal-drill">
+        <div class="modal" style="max-width: 1080px;">
+            <div class="modal-header"><h3 id="drill-title">Details</h3><button class="btn btn-outline" style="padding: 4px 8px;" onclick="closeModal('modal-drill')">✕</button></div>
+            <div class="modal-body" id="drill-body"></div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="modal-company">
         <div class="modal" style="max-width: 900px;">
             <div class="modal-header"><h3 id="company-modal-title">Company</h3><button class="btn btn-outline" style="padding: 4px 8px;" onclick="closeModal('modal-company')">✕</button></div>
@@ -6021,8 +6022,20 @@ function setClearanceItem(empId, idx, cleared) {
 }
 function commitClearance(refId) { showToast('Clearance chain approved for ' + refId + '.', 'success'); }
 function discardClearance(refId) { showToast('Clearance chain rejected for ' + refId + '.', 'warning'); }
-function commitTravel(refId) { showToast('Travel request ' + refId + ' approved and sent to the travel desk.', 'success'); }
-function discardTravel(refId) { showToast('Travel request ' + refId + ' rejected.', 'warning'); }
+function commitTravel(refId) {
+    const t = typeof travelById === 'function' ? travelById(refId) : null;
+    if (t) t.status = 'Approved';
+    if (typeof renderESSTravel === 'function') renderESSTravel();
+    if (typeof renderTravelDesk === 'function') renderTravelDesk();
+    showToast('Travel request ' + refId + ' approved and sent to the travel desk.', 'success');
+}
+function discardTravel(refId) {
+    const t = typeof travelById === 'function' ? travelById(refId) : null;
+    if (t) t.status = 'Rejected';
+    if (typeof renderESSTravel === 'function') renderESSTravel();
+    if (typeof renderTravelDesk === 'function') renderTravelDesk();
+    showToast('Travel request ' + refId + ' rejected.', 'warning');
+}
 
 // ==========================================================================
 // PROBATION & CONFIRMATION
@@ -6689,12 +6702,72 @@ function attendanceCounts() {
     });
     return counts;
 }
+// The payroll card reads the period rather than asserting a state.
+function renderDashboardCards() {
+    const onRoll = employees.filter(e => !e.exitDate || e.exitDate >= DEMO_TODAY);
+    const hc = document.getElementById('dash-headcount');
+    if (hc) hc.innerText = onRoll.length;
+    const hcs = document.getElementById('dash-headcount-sub');
+    if (hcs) {
+        const joinedThisMonth = onRoll.filter(e => (e.doj || '').slice(0, 7) === DEMO_TODAY.slice(0, 7)).length;
+        hcs.innerText = joinedThisMonth ? '+' + joinedThisMonth + ' joined this month' : 'On roll';
+    }
+    const meta = periodMeta(activePayrollPeriod);
+    const run = payrollPeriods[activePayrollPeriod];
+    const lab = document.getElementById('dash-payroll-label');
+    if (lab) lab.innerText = 'Payroll Run (' + meta.label + ')';
+    const stEl = document.getElementById('dash-payroll-state');
+    const subEl = document.getElementById('dash-payroll-sub');
+    if (stEl && subEl) {
+        if (run && run.executed) {
+            stEl.innerText = 'Executed'; stEl.style.color = 'var(--success)';
+            subEl.className = 'badge badge-success';
+            subEl.innerText = (run.rows ? run.rows.length : 0) + ' payslip(s)';
+        } else if (run && run.rows && run.rows.length) {
+            stEl.innerText = 'Computed'; stEl.style.color = 'var(--warning)';
+            subEl.className = 'badge badge-warning'; subEl.innerText = 'Awaiting execution';
+        } else {
+            stEl.innerText = 'Not run'; stEl.style.color = 'var(--text-muted)';
+            subEl.className = 'badge badge-neutral'; subEl.innerText = 'Stage 1 of 6';
+        }
+    }
+    const tk = document.getElementById('dash-tickets');
+    if (tk) tk.innerText = helpdeskTickets.filter(t => t.status !== 'Resolved' && t.status !== 'Closed').length;
+    const db = document.getElementById('dash-domebox');
+    const dbs = document.getElementById('dash-domebox-sub');
+    const synced = employees.filter(e => e.domebox).length;
+    if (db) db.innerText = synced ? 'Active' : 'Idle';
+    if (dbs) dbs.innerText = synced + ' of ' + employees.length + ' synced';
+    renderDashActivity();
+}
+// The activity list is the audit trail, not a fixed set of lines.
+function renderDashActivity() {
+    const el = document.getElementById('dash-activity');
+    if (!el) return;
+    const ICON = { Attendance: '\u{1F7E2}', Payroll: '\u{1F4B0}', Security: '\u{1F510}', System: '\u2699\uFE0F',
+                   Leave: '\u{1F334}', General: '\u{1F4CC}' };
+    const rows = auditLog.slice(0, 6);
+    el.innerHTML = rows.length
+        ? rows.map(l => '<li>' + (ICON[l.category] || '\u{1F4CC}') + ' <strong>' + esc(l.action) + '</strong>' +
+            (l.detail ? ' <span style="color:var(--text-muted)">' + esc(String(l.detail).slice(0, 64)) + '</span>' : '') +
+            ' <span style="font-size:0.72rem; color:var(--text-muted)">' + esc((l.ts || '').split(',').pop().trim()) + '</span></li>').join('')
+        : '<li style="color:var(--text-muted)">Nothing recorded yet.</li>';
+}
+function drillActivity() {
+    openDrill('Activity — ' + auditLog.length + ' entries',
+        'The audit trail behind the dashboard feed: every execution, approval, master-data change and export.',
+        ['When', 'User', 'Role', 'Category', 'Action', 'Detail'],
+        auditLog.map(l => [esc(l.ts), esc(l.user), esc(l.role), esc(l.category), esc(l.action), esc(l.detail)]),
+        { empty: 'Nothing has been recorded yet.',
+          action: { label: 'Open audit trail', onclick: "closeModal('modal-drill'); navigate('audit')" } });
+}
+
 function renderAttendanceSnapshot() {
     const counts = attendanceCounts();
     const total = employees.length;
     const marked = ATTENDANCE_STATES.reduce((a, st) => a + counts[st.key], 0);
     let html = `
-        <div class="stat-mini">
+        <div class="stat-mini is-drillable" onclick="drillHeadcount()" title="Show everyone on roll">
             <div class="stat-mini-label">Total Headcount</div>
             <div class="stat-mini-value">${total}</div>
             <div class="stat-mini-sub">${marked} of ${total} marked</div>
@@ -6702,7 +6775,7 @@ function renderAttendanceSnapshot() {
     ATTENDANCE_STATES.forEach(st => {
         const pct = total === 0 ? 0 : Math.round((counts[st.key] / total) * 100);
         html += `
-        <div class="stat-mini ${st.cls}">
+        <div class="stat-mini is-drillable ${st.cls}" onclick="drillAttendance('${st.key}')" title="Show who is ${st.label.toLowerCase()}">
             <div class="stat-mini-label">${st.label}</div>
             <div class="stat-mini-value" style="color:${st.color}">${counts[st.key]}</div>
             <div class="stat-mini-sub">${pct}% of workforce</div>
@@ -6714,6 +6787,7 @@ function renderAttendanceSnapshot() {
     });
     const dateEl = document.getElementById('attendance-snapshot-date');
     if (dateEl) dateEl.innerText = 'As on ' + prettyDate(DEMO_TODAY);
+    if (typeof renderDashboardCards === 'function') renderDashboardCards();
 }
 
 // --- EMPLOYEE CALENDAR ENGINE ---
@@ -6929,7 +7003,7 @@ function runViewHooks(viewId) {
     if (viewId === 'ess-att-requests') renderESSAttendanceRequests();
     if (viewId === 'helpdesk') renderAdminHelpdesk();
     if (viewId === 'letters') { populateLetterDropdown(); renderLetterLockState(); }
-    if (viewId === 'dashboard') { renderAttendanceSnapshot(); renderCalendar('company'); }
+    if (viewId === 'dashboard') { renderDashboardCards(); renderAttendanceSnapshot(); renderCalendar('company'); }
     if (viewId === 'recruitment') renderATS();
     if (viewId === 'compliance') { renderESICRegister(); }
     if (viewId === 'leave') renderLeaveView();
@@ -6953,6 +7027,9 @@ function runViewHooks(viewId) {
     if (viewId === 'ess-expenses') renderESSExpenses();
     if (viewId === 'ess-timesheets') renderESSTimesheets();
     if (viewId === 'ess-payslips') renderESSPayslips();
+    if (viewId === 'ess-tax') loadDeclarationForm();
+    if (viewId === 'ess-travel') renderESSTravel();
+    if (viewId === 'travel') renderTravelDesk();
     if (viewId === 'ess-performance') renderESSPerformance();
     if (viewId === 'performance') renderPerformance();
     if (viewId === 'succession') renderSuccession();
@@ -14585,7 +14662,7 @@ function generateReport(selectId, label) {
 const STORE_KEY = 'biscs-hrms-state-v1';
 const PERSISTED = ['employees', 'nextEmpSeq', 'leaveLedger', 'nextLeaveSeq', 'leavePolicy', 'leaveCredits',
     'nextLeaveCreditSeq', 'leaveEncashments', 'nextLeaveEncashSeq', 'attendanceExceptions', 'taxDeclarations',
-    'loans', 'nextLoanSeq', 'expenseClaims', 'nextExpenseSeq', 'salaryRevisions', 'nextRevisionSeq',
+    'loans', 'nextLoanSeq', 'expenseClaims', 'nextExpenseSeq', 'travelRequests', 'nextTravelSeq', 'enpsResponses', 'salaryRevisions', 'nextRevisionSeq',
     'payrollPeriods', 'activePayrollPeriod', 'candidates', 'interviews', 'helpdeskTickets', 'exits',
     'timesheets', 'nextTimesheetSeq', 'assets', 'shiftRoster', 'domeboxSync', 'ctcStructure', 'auditLog',
     'workflowInstances', 'nextWorkflowSeq', 'workflowConfig',
@@ -15369,6 +15446,363 @@ function sendWAMessage() {
         feed.innerHTML += `<div class="wa-msg wa-received">${reply}</div>`;
         feed.scrollTop = feed.scrollHeight;
     }, 600);
+}
+
+// --- eNPS ----------------------------------------------------------------
+// The score row recorded nothing. Responses now land in a real store, kept
+// without the responder's identity so "anonymous" means what it says — only
+// the department is retained, which is the smallest unit the report needs.
+var enpsResponses = [];
+var enpsPick = null;
+function pickEnps(score) {
+    enpsPick = score;
+    document.querySelectorAll('.enps-btn').forEach(b => {
+        const on = parseInt(b.dataset.score, 10) === score;
+        b.style.background = on ? 'var(--primary)' : '';
+        b.style.color = on ? 'white' : '';
+        b.style.borderColor = on ? 'var(--primary)' : '';
+    });
+}
+function submitEnps() {
+    if (enpsPick === null) return showToast('Pick a score from 0 to 10 first.', 'error');
+    const el = document.getElementById('enps-comment');
+    const emp = loggedInUser && loggedInUser.id ? empById(loggedInUser.id) : null;
+    enpsResponses.push({
+        score: enpsPick,
+        band: enpsPick >= 9 ? 'Promoter' : enpsPick >= 7 ? 'Passive' : 'Detractor',
+        dept: emp ? emp.dept : '',
+        comment: el ? el.value.trim() : '',
+        on: DEMO_TODAY
+    });
+    const promoters = enpsResponses.filter(r => r.band === 'Promoter').length;
+    const detractors = enpsResponses.filter(r => r.band === 'Detractor').length;
+    const nps = Math.round(((promoters - detractors) / enpsResponses.length) * 100);
+    audit('eNPS response recorded', enpsResponses.length + ' response(s) \u00b7 score now ' + nps, 'Engagement');
+    if (el) el.value = '';
+    pickEnps(null);
+    enpsPick = null;
+    showToast('Thank you \u2014 recorded anonymously. The score across ' + enpsResponses.length +
+        ' response(s) is now ' + nps + '.', 'success');
+}
+function drillEnps() {
+    openDrill('eNPS responses \u2014 ' + enpsResponses.length,
+        'Recorded without the responder\'s identity. Only the department is kept.',
+        ['Score', 'Band', 'Department', 'Comment', 'On'],
+        enpsResponses.map(r => [r.score, r.band, r.dept || '--', esc(r.comment || ''), prettyDate(r.on)]),
+        { empty: 'Nobody has responded yet.' });
+}
+
+// --- Travel requests -----------------------------------------------------
+// "travel" is a configured workflow type with commit and discard handlers
+// already written; nothing had ever raised one. This does, through the same
+// engine every other request uses, so it lands in the approval inbox and on
+// the request register like everything else.
+var travelRequests = [];
+var nextTravelSeq = 1;
+
+function submitTravelRequest() {
+    if (!loggedInUser || !loggedInUser.id) return showToast('No employee record is linked to this account.', 'error');
+    const val = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    const checked = id => { const el = document.getElementById(id); return !!(el && el.checked); };
+    const dest = val('trv-dest'), from = val('trv-from'), to = val('trv-to');
+    const cost = Math.max(0, parseFloat(val('trv-cost')) || 0);
+    const purpose = val('trv-purpose');
+    if (!dest) return showToast('Where is the travel to?', 'error');
+    if (!from || !to) return showToast('Give both travel dates.', 'error');
+    if (to < from) return showToast('The return is before the departure.', 'error');
+    const services = [checked('trv-flight') ? 'Flight' : '', checked('trv-hotel') ? 'Hotel' : '', checked('trv-cab') ? 'Cab' : ''].filter(Boolean);
+    if (!services.length) return showToast('Pick at least one service to book.', 'error');
+
+    const id = 'TRV-' + String(nextTravelSeq++).padStart(3, '0');
+    const req = { id: id, empId: loggedInUser.id, dest: dest, from: from, to: to, cost: cost,
+                  purpose: purpose, services: services, status: 'Pending', raisedOn: DEMO_TODAY };
+    travelRequests.unshift(req);
+    const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+    raiseWorkflow('travel', id, loggedInUser.id,
+        dest + ' · ' + days + ' day(s) · ' + services.join(', ') + (purpose ? ' · ' + purpose : ''), cost);
+    audit('Travel request raised', loggedInUser.name + ' · ' + dest + ' · ' + prettyDate(from) + ' to ' + prettyDate(to), 'Travel');
+    ['trv-dest', 'trv-purpose', 'trv-cost'].forEach(k => { const el = document.getElementById(k); if (el) el.value = ''; });
+    renderESSTravel();
+    refreshWorkflowViews();
+    renderApprovalInbox();
+    showToast('Travel request ' + id + ' raised — it is with your approver now.', 'success');
+}
+function travelById(refId) { return travelRequests.find(t => t.id === refId) || null; }
+// The travel desk works the real queue: approved requests waiting to be booked.
+function renderTravelDesk() {
+    const tb = document.getElementById('travel-desk-table');
+    if (!tb) return;
+    const rows = travelRequests.filter(t => t.status !== 'Rejected');
+    tb.innerHTML = rows.length
+        ? rows.map(t => {
+            const badge = t.status === 'Booked' ? 'badge-success' : t.status === 'Approved' ? 'badge-warning' : 'badge-info';
+            const label = t.status === 'Approved' ? 'Requires Booking' : t.status;
+            return '<tr><td><strong>' + esc(empName(t.empId)) + '</strong><br><span style="font-size:0.72rem; color:var(--text-muted)">' + esc(t.id) + '</span></td>' +
+                '<td>' + esc(t.dest) + '</td>' +
+                '<td style="font-size:0.82rem;">' + prettyDate(t.from) + ' – ' + prettyDate(t.to) + '</td>' +
+                '<td style="font-size:0.82rem;">' + esc((t.services || []).join(' + ')) + '</td>' +
+                '<td><span class="badge ' + badge + '">' + esc(label) + '</span></td>' +
+                '<td>' + (t.status === 'Approved'
+                    ? '<button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px;" onclick="markTravelBooked(\'' + t.id + '\')">Mark Booked</button>'
+                    : '<span style="font-size:0.72rem; color:var(--text-muted)">' + (t.status === 'Booked' ? 'booked ' + prettyDate(t.bookedOn || t.raisedOn) : 'awaiting approval') + '</span>') + '</td></tr>';
+        }).join('')
+        : '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:18px;">No travel requests yet.</td></tr>';
+}
+function markTravelBooked(refId) {
+    const t = travelById(refId);
+    if (!t) return;
+    if (t.status !== 'Approved') return showToast('That request is not approved yet.', 'warning');
+    t.status = 'Booked';
+    t.bookedOn = DEMO_TODAY;
+    audit('Travel booked', t.id + ' · ' + empName(t.empId) + ' · ' + t.dest, 'Travel');
+    renderTravelDesk();
+    renderESSTravel();
+    showToast(t.id + ' marked as booked — it shows as booked on ' + empName(t.empId) + "'s travel history.", 'success');
+}
+function renderESSTravel() {
+    const tb = document.getElementById('ess-travel-table');
+    if (!tb) return;
+    const mine = travelRequests.filter(t => !loggedInUser || t.empId === loggedInUser.id);
+    tb.innerHTML = mine.length
+        ? mine.map(t => '<tr><td style="font-size:0.78rem;">' + esc(t.id) + '</td><td>' + esc(t.dest) + '</td>' +
+            '<td style="font-size:0.8rem;">' + prettyDate(t.from) + ' – ' + prettyDate(t.to) + '</td>' +
+            '<td><span class="badge ' + (t.status === 'Approved' ? 'badge-success' : t.status === 'Rejected' ? 'badge-danger'
+                : t.status === 'Booked' ? 'badge-info' : 'badge-warning') + '">' + esc(t.status) + '</span></td></tr>').join('')
+        : '<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:16px;">No travel requested yet.</td></tr>';
+}
+
+// --- IT declarations -----------------------------------------------------
+// What an employee declares here is what the TDS stage of payroll reads, so the
+// form writes to taxDeclarations rather than raising a toast and forgetting.
+// Only the old regime allows Chapter VI-A deductions, which the impact line says.
+function declarationInputs() {
+    const num = id => { const el = document.getElementById(id); return Math.max(0, parseFloat(el && el.value) || 0); };
+    const s80c = num('dec-lic') + num('dec-ppf') + num('dec-elss');
+    return { s80c: s80c, s80d: num('dec-80d'), s24b: num('dec-24b') };
+}
+function renderDeclarationTotals() {
+    const d = declarationInputs();
+    const caps = (STAT_CONFIG.tds && STAT_CONFIG.tds.caps) || { s80c: 150000, s80d: 25000, s24b: 200000 };
+    const cap = caps.s80c;
+    const bar = document.getElementById('dec-80c-bar');
+    if (bar) bar.style.width = Math.min(100, Math.round((d.s80c / cap) * 100)) + '%';
+    const tot = document.getElementById('dec-80c-total');
+    if (tot) tot.innerHTML = fmtINR(d.s80c) + ' declared' +
+        (d.s80c > cap ? ' — <span style="color:var(--warning)">above the ' + fmtINR(cap) + ' cap, the excess is not counted</span>' : '');
+    const impact = document.getElementById('dec-impact');
+    if (impact && loggedInUser && loggedInUser.id) {
+        const cur = declarationOf(loggedInUser.id);
+        if (cur.regime !== 'old') {
+            impact.innerHTML = 'You are on the <strong>new regime</strong>, which does not allow these deductions. ' +
+                'They are saved either way, and apply if you switch — compare the two under <strong>Form 16 &amp; Tax</strong>.';
+        } else {
+            const emp = empById(loggedInUser.id);
+            const claimable = Math.min(d.s80c, caps.s80c) + Math.min(d.s80d, caps.s80d) + Math.min(d.s24b, caps.s24b);
+            impact.innerHTML = emp
+                ? 'Claiming <strong>' + fmtINR(claimable) + '</strong> against your taxable income this year, under the old regime.'
+                : '';
+        }
+    }
+}
+function loadDeclarationForm() {
+    if (!loggedInUser || !loggedInUser.id) return;
+    const d = declarationOf(loggedInUser.id);
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+    // 80C is stored as one figure; it is shown against the first line rather
+    // than split back into components it was never stored as.
+    set('dec-lic', d.s80c || '');
+    set('dec-80d', d.s80d || '');
+    set('dec-24b', d.s24b || '');
+    renderDeclarationTotals();
+}
+function submitDeclarations() {
+    if (!loggedInUser || !loggedInUser.id) return showToast('No employee record is linked to this account.', 'error');
+    const d = declarationInputs();
+    const caps = (STAT_CONFIG.tds && STAT_CONFIG.tds.caps) || { s80c: 150000, s80d: 25000, s24b: 200000 };
+    const cap = caps.s80c;
+    const cur = declarationOf(loggedInUser.id);
+    taxDeclarations[loggedInUser.id] = { regime: cur.regime, s80c: d.s80c, s80d: d.s80d, s24b: d.s24b,
+                                         declaredOn: DEMO_TODAY };
+    audit('Tax declarations submitted', loggedInUser.name + ' · 80C ' + fmtINR(d.s80c) +
+        ' · 80D ' + fmtINR(d.s80d) + ' · 24B ' + fmtINR(d.s24b), 'Payroll');
+    // Payroll has already taken these into account if it is past the tax stage.
+    if (payrollStage >= 4) { stageStatutory(); stageValidate(); renderPayrollUI(); }
+    renderForm16List();
+    renderDeclarationTotals();
+    showToast('Declarations saved' + (d.s80c > cap ? ' — 80C is capped at ' + fmtINR(cap) + '.' : '.') +
+        (cur.regime === 'old' ? ' Your TDS recomputes from the next payroll run.'
+                              : ' You are on the new regime, so they do not reduce TDS unless you switch.'),
+        'success');
+}
+
+// ==========================================================================
+// DRILL-DOWN
+// A number on a card is only useful if you can see what it is made of. Every
+// headline figure opens the rows behind it — searchable, sortable, and
+// exportable — built from the same source the figure itself was counted from,
+// so the list and the number can never disagree.
+// ==========================================================================
+var drillState = null;
+
+function openDrill(title, subtitle, columns, rows, opts) {
+    drillState = { title: title, subtitle: subtitle || '', columns: columns, rows: rows || [],
+                   q: '', sort: -1, dir: 1, opts: opts || {} };
+    renderDrill();
+    openModal('modal-drill');
+}
+function drillFiltered() {
+    if (!drillState) return [];
+    const q = drillState.q.trim().toLowerCase();
+    let rows = drillState.rows;
+    if (q) rows = rows.filter(r => r.some(c => String(c === null || c === undefined ? '' : c).toLowerCase().indexOf(q) !== -1));
+    if (drillState.sort >= 0) {
+        const i = drillState.sort, dir = drillState.dir;
+        rows = rows.slice().sort((a, b) => {
+            const x = a[i], y = b[i];
+            const nx = parseFloat(String(x).replace(/[^0-9.\-]/g, '')), ny = parseFloat(String(y).replace(/[^0-9.\-]/g, ''));
+            const bothNum = !isNaN(nx) && !isNaN(ny) && String(x).match(/\d/) && String(y).match(/\d/);
+            if (bothNum) return (nx - ny) * dir;
+            return String(x).localeCompare(String(y)) * dir;
+        });
+    }
+    return rows;
+}
+function renderDrill() {
+    const st = drillState;
+    if (!st) return;
+    const rows = drillFiltered();
+    const t = document.getElementById('drill-title');
+    if (t) t.innerText = st.title;
+    const body = document.getElementById('drill-body');
+    if (!body) return;
+    body.innerHTML =
+        (st.subtitle ? '<p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px;">' + st.subtitle + '</p>' : '') +
+        '<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">' +
+            '<input type="text" id="drill-search" placeholder="Search these rows…" value="' + esc(st.q) + '" ' +
+                'oninput="drillState.q=this.value; renderDrill(); const b=document.getElementById(\'drill-search\'); if(b){b.focus(); b.setSelectionRange(b.value.length,b.value.length);}" ' +
+                'style="max-width:260px;">' +
+            '<span style="font-size:0.82rem; color:var(--text-muted);">' + rows.length +
+                (rows.length === st.rows.length ? '' : ' of ' + st.rows.length) + ' row(s)</span>' +
+            '<div style="margin-left:auto; display:flex; gap:8px;">' +
+                (st.opts.action ? '<button class="btn btn-outline" onclick="' + st.opts.action.onclick + '">' + esc(st.opts.action.label) + '</button>' : '') +
+                (rows.length ? '<button class="btn btn-outline" onclick="exportDrill()">⬇️ CSV</button>' : '') +
+            '</div>' +
+        '</div>' +
+        (rows.length
+            ? '<div style="overflow:auto; max-height:56vh; border:1px solid var(--border); border-radius:8px;">' +
+              '<table><thead><tr>' +
+              st.columns.map((c, i) => '<th style="cursor:pointer; white-space:nowrap;" onclick="sortDrill(' + i + ')">' +
+                  esc(c) + (st.sort === i ? (st.dir === 1 ? ' ▲' : ' ▼') : '') + '</th>').join('') +
+              '</tr></thead><tbody>' +
+              rows.map(r => '<tr>' + r.map((c, i) =>
+                  '<td style="font-size:0.83rem;' + (i === 0 ? ' font-weight:600;' : '') + '">' +
+                  (c === null || c === undefined ? '<span style="color:var(--text-muted)">--</span>' : String(c)) + '</td>').join('') + '</tr>').join('') +
+              '</tbody></table></div>'
+            : '<div class="card" style="background:var(--bg-main); font-size:0.86rem; text-align:center;">' +
+              (st.rows.length ? 'Nothing matches that search.' : (st.opts.empty || 'There is nothing behind this figure yet.')) + '</div>');
+}
+function sortDrill(i) {
+    if (!drillState) return;
+    if (drillState.sort === i) drillState.dir = -drillState.dir;
+    else { drillState.sort = i; drillState.dir = 1; }
+    renderDrill();
+}
+function exportDrill() {
+    if (!drillState) return;
+    const rows = [[drillState.title, prettyDate(DEMO_TODAY)], [], drillState.columns].concat(
+        drillFiltered().map(r => r.map(c => String(c === null || c === undefined ? '' : c).replace(/<[^>]*>/g, ''))));
+    downloadRows(drillState.title.replace(/[^A-Za-z0-9]+/g, '_') + '_' + DEMO_TODAY + '.csv', rows);
+    showToast('"' + drillState.title + '" exported.', 'success');
+}
+
+// --- What each headline figure is made of --------------------------------
+function empRow(e, extra) {
+    const base = [esc(e.name), esc(e.id), esc(e.dept), esc(e.role), prettyDate(e.doj)];
+    return extra ? base.concat(extra) : base;
+}
+const EMP_COLS = ['Employee', 'Code', 'Department', 'Designation', 'Joined'];
+
+function drillHeadcount() {
+    const onRoll = employees.filter(e => !e.exitDate || e.exitDate >= DEMO_TODAY);
+    openDrill('Total headcount — ' + onRoll.length + ' on roll',
+        'Everyone on the roll as on ' + prettyDate(DEMO_TODAY) + '. Anyone whose last working day has passed is excluded.',
+        EMP_COLS.concat(['Status', 'Today']),
+        onRoll.map(e => empRow(e, [esc(e.status || '--'), esc(todayStatusOf(e.id))])),
+        { empty: 'No employees on roll.' });
+}
+function drillAttendance(stateKey) {
+    const st = ATTENDANCE_STATES.find(s => s.key === stateKey);
+    if (!st) return;
+    refreshTodayAttendance();
+    const list = employees.filter(e => (todayAttendance[e.id] || 'Absent') === stateKey);
+    openDrill(st.label + ' today — ' + list.length,
+        prettyDate(DEMO_TODAY) + '. Worked out from the punch log, the leave ledger, approved duty days and any HR mark — the same reading the muster and the payslip use.',
+        EMP_COLS.concat(['In', 'Out', 'Hours', 'How it was decided']),
+        list.map(e => {
+            const rec = dailyAttendance.find(a => a.empId === e.id && a.date === DEMO_TODAY);
+            return empRow(e, [rec && rec.inTime ? rec.inTime : '--', rec && rec.outTime ? rec.outTime : '--',
+                rec && rec.hours ? rec.hours + ' h' : '--', esc(attendanceBasis(e.id))]);
+        }),
+        { empty: 'Nobody is ' + st.label.toLowerCase() + ' today.' });
+}
+// Why the day reads the way it does, in one line.
+function attendanceBasis(empId) {
+    const iso = DEMO_TODAY;
+    const emp = empById(empId);
+    if (!emp) return '';
+    if (emp.doj && iso < emp.doj) return 'Had not joined';
+    if (emp.exitDate && iso > emp.exitDate) return 'Has left';
+    if (isHolidayIso(iso)) return 'Company holiday';
+    if (isWeekOff(parseIso(iso))) return 'Week off';
+    const duty = dutyMarkOn(empId, iso);
+    if (duty) return 'Approved duty day';
+    const lv = leaveOnDate(empId, iso);
+    if (lv) return 'On ' + (lv.code || 'leave');
+    const exc = (attendanceExceptions[empId] || {})[iso];
+    if (exc) return 'Set by HR (' + manualMarkLabel(exc) + ')';
+    const punches = punchesFor(empId, iso);
+    if (!punches.length) return 'No punch captured';
+    return punches.length + ' punch(es) on the log';
+}
+function drillTickets() {
+    const open = helpdeskTickets.filter(t => t.status !== 'Resolved' && t.status !== 'Closed');
+    openDrill('Open helpdesk tickets — ' + open.length,
+        'Everything not yet resolved or closed, across IT and HR.',
+        ['Ref', 'Raised by', 'Category', 'Subject', 'Priority', 'Status', 'Raised'],
+        open.map(t => [esc(t.id || '--'), esc(empName(t.empId) || t.raisedBy || '--'), esc(t.category || '--'),
+                       esc(t.subject || t.title || '--'), esc(t.priority || '--'), esc(t.status || '--'),
+                       t.date ? prettyDate(t.date) : '--']),
+        { empty: 'No tickets are open.', action: { label: 'Open helpdesk', onclick: "closeModal('modal-drill'); navigate('helpdesk')" } });
+}
+function drillPayrollPeriod() {
+    const period = activePayrollPeriod;
+    const run = payrollPeriods[period];
+    const meta = periodMeta(period);
+    if (!run || !run.rows || !run.rows.length) {
+        return openDrill('Payroll — ' + meta.label,
+            'This period has not been run yet. The engine builds it in six stages, from the muster through to execution.',
+            ['Employee', 'Code', 'Department', 'Monthly gross'],
+            employees.filter(e => !e.exitDate || e.exitDate >= DEMO_TODAY).map(e => {
+                const st = calculateSalaryStructure(e.ctc);
+                return [esc(e.name), esc(e.id), esc(e.dept), fmtINR(st.grossMonthly)];
+            }),
+            { empty: 'No employees to pay.', action: { label: 'Open payroll engine', onclick: "closeModal('modal-drill'); navigate('payroll')" } });
+    }
+    openDrill('Payroll — ' + meta.label + (run.executed ? ' (executed)' : ' (draft)'),
+        run.executed ? 'Executed on ' + esc(run.executedOn || '--') + '. These are the figures the payslips were built from.'
+                     : 'Computed but not yet executed. Nothing has been posted.',
+        ['Employee', 'Code', 'Payable days', 'Gross', 'Deductions', 'Net'],
+        run.rows.map(r => [esc(empName(r.empId)), esc(r.empId), r.payableDays === undefined ? '--' : r.payableDays,
+                           fmtINR(r.gross || 0), fmtINR(r.totalDeductions || 0), fmtINR(r.net || 0)]),
+        { action: { label: 'Open payroll engine', onclick: "closeModal('modal-drill'); navigate('payroll')" } });
+}
+function drillDomebox() {
+    const synced = employees.filter(e => e.domebox);
+    openDrill('DomeBox sync — ' + synced.length + ' of ' + employees.length,
+        'Employees whose task activity is pulled from DomeBox. Task counts feed the performance bonus in the variable-pay stage of payroll.',
+        EMP_COLS.concat(['Tasks synced']),
+        synced.map(e => empRow(e, [(domeboxSync && domeboxSync[e.id] !== undefined) ? domeboxSync[e.id] : '--'])),
+        { empty: 'Nobody is synced to DomeBox.', action: { label: 'Open DomeBox', onclick: "closeModal('modal-drill'); navigate('domebox')" } });
 }
 
 // --- Collapsible sidebar groups -----------------------------------------
