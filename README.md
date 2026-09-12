@@ -585,7 +585,7 @@ attendance" that could disagree with the payslip.
 | Route | What it is |
 |---|---|
 | **Device log file** | The raw tab-separated `.dat` / `.txt` pulled off the device — user ID, timestamp, state. No header row. |
-| **eTimeTrackLite export** | Reports → Device Logs / Attendance Register, saved as Excel or CSV. |
+| **eTimeTrackLite export** | Reports → Device Logs / Attendance Register, saved as `.xls`, `.xlsx` or CSV — including the grouped **Log Records (Employee Wise)** report. |
 | **MySQL sync** | Read the eSSL database directly on a schedule — see `tools/essl-sync` below. |
 
 All three land in the same importer, and nothing is written until you have seen
@@ -637,6 +637,68 @@ Committing an import clears any *recorded absence* on a day the punches
 disprove, and says how many. Every import is a numbered batch in the history
 table, and **Undo** removes exactly the punches that batch wrote and rebuilds
 those days from whatever is left.
+
+### HR uploads the log book by hand
+
+**Attendance Register → Upload eSSL Log Book**, or **eSSL Device Import** in the
+sidebar. Both are open to any HR Admin account whose company holds the `essl`
+module — no provider account needed. The shortcut on the register hides itself
+where the module is not licensed.
+
+#### The `.xls` eSSL actually exports is read directly
+
+eSSL exports **Log Records (Employee Wise)** as a genuine legacy binary `.xls`
+(an OLE compound file holding a BIFF8 workbook), not a spreadsheet dressed up
+with that extension. The module reads it natively — the compound-file container
+and the BIFF records that carry cell values are walked by hand, so there is
+still no library and no upload to a server. Checked against a real 375 KB export:
+all **2,543 rows across 15 sheets** come out identical to a reference reader.
+
+The report runs over as many sheets as it needs, and **every sheet is read**, not
+just the first. The employee importer reads `.xls` now too.
+
+#### It is a grouped report, not a table
+
+In this layout the employee is a **section heading** —
+`Employee | LB0016 : Surajit Sarkar` — and the punch rows beneath it carry only a
+timestamp and a device name. There is no employee column to map. The importer
+detects the shape and carries the heading down the rows, pulling out employee
+code, name, department, timestamp and device from the report structure. The
+preview says when it has done this, and hides the column pickers, which mean
+nothing in that layout.
+
+Because the report names each person, **Match by name** resolves unmapped codes
+against the directory in one click. In practice: import the employee master
+first, then the log book, and the mapping largely does itself.
+
+#### Repeat reads — the one that would have cost you money
+
+eSSL readers commonly register the same finger **twice, a second or two apart**.
+In the real export checked here, **594 of 1,249 consecutive punch pairs were
+within two seconds of each other.**
+
+That matters because direction is derived by alternating in/out. Left alone,
+`09:16:45` and `09:16:46` become a complete work session of **one second**, and
+the real 09:16 → 19:02 day disappears:
+
+| | Worked hours across 781 employee-days |
+|---|---|
+| Alternating the raw reads | 3,921 |
+| Collapsing repeat reads first | 5,176 |
+| **Lost to loss-of-pay if unhandled** | **1,255 hours** |
+
+So punches closer together than a set window are treated as one read. The window
+is configurable (off, 5s, 30s, 1m, **2m default**, 5m) and the preview reports
+how many reads were collapsed. The punch keeps a count of how many times it was
+actually read.
+
+#### Missing punches are named, not buried
+
+After collapsing, an **odd number of reads** in a day means someone clocked in
+and never out, or the reader missed one. Those days still import — the punch is
+real — but the preview **lists them by employee and date** rather than letting
+them become a quiet short day in payroll. Fix them on the Attendance Register,
+or let the employee raise a Forgot Punch request.
 
 ### `tools/essl-sync` — reading the eSSL MySQL directly
 

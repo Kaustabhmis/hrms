@@ -1308,6 +1308,7 @@
                     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;" data-role="admin">
                         <select id="manual-att-period-select" style="width:auto;" onchange="setManualAttPeriod(this.value)"></select>
                         <button class="btn btn-primary" onclick="openManualPunch()">🕘 Enter Punch</button>
+                        <button class="btn btn-outline" id="reg-essl-link" onclick="navigate('essl')" style="display:none;">🖥️ Upload eSSL Log Book</button>
                         <button class="btn btn-outline" onclick="openBulkMark()">🗂️ Bulk Mark</button>
                         <button class="btn btn-outline" onclick="exportAttendanceRegister()">⬇️ Register (CSV)</button>
                     </div>
@@ -1415,9 +1416,9 @@
                          ondragover="esslDragOver(event)" ondragleave="esslDragLeave()" ondrop="esslDrop(event)">
                         <div class="drop-icon">🖥️</div>
                         <div class="drop-title">Drop an eSSL log or export here, or click to browse</div>
-                        <div class="drop-sub">Accepts <strong>.dat</strong>, <strong>.txt</strong>, <strong>.csv</strong>, <strong>.xlsx</strong> and <strong>.xlsm</strong></div>
+                        <div class="drop-sub">Accepts <strong>.dat</strong>, <strong>.txt</strong>, <strong>.csv</strong>, <strong>.xls</strong>, <strong>.xlsx</strong> and <strong>.xlsm</strong> — including the <strong>Log Records (Employee Wise)</strong> report eSSL exports</div>
                     </div>
-                    <input type="file" id="essl-file" accept=".dat,.txt,.csv,.xlsx,.xlsm,text/plain,text/csv" style="display:none" onchange="onEsslFile(this)">
+                    <input type="file" id="essl-file" accept=".dat,.txt,.csv,.xls,.xlsx,.xlsm,text/plain,text/csv" style="display:none" onchange="onEsslFile(this)">
                     <div id="essl-file-status" style="font-size:0.85rem; margin-top:12px; min-height:20px;"></div>
                     <details style="margin-top:12px;">
                         <summary style="cursor:pointer; font-size:0.84rem; font-weight:600; color:var(--secondary);">Or paste rows</summary>
@@ -2096,9 +2097,9 @@
                          ondragover="importDragOver(event)" ondragleave="importDragLeave()" ondrop="importDrop(event)">
                         <div class="drop-icon">📄</div>
                         <div class="drop-title">Drop a CSV or Excel file here, or click to browse</div>
-                        <div class="drop-sub">Accepts <strong>.csv</strong>, <strong>.xlsx</strong> and <strong>.xlsm</strong>. Excel files are read directly — the first sheet is used.</div>
+                        <div class="drop-sub">Accepts <strong>.csv</strong>, <strong>.xls</strong>, <strong>.xlsx</strong> and <strong>.xlsm</strong>. Excel files are read directly — the first sheet is used.</div>
                     </div>
-                    <input type="file" id="import-file" accept=".csv,.xlsx,.xlsm,text/csv" style="display:none" onchange="onImportFile(this)">
+                    <input type="file" id="import-file" accept=".csv,.xls,.xlsx,.xlsm,text/csv" style="display:none" onchange="onImportFile(this)">
                     <div id="import-file-status" style="font-size:0.85rem; margin-top:12px; min-height:20px;"></div>
 
                     <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
@@ -3820,6 +3821,12 @@ const MANUAL_MARKS = [
 ];
 function manualMarkLabel(code) { const m = MANUAL_MARKS.find(x => x.code === code); return m ? m.label : code; }
 
+// Seconds matter for the eSSL de-bounce window, which minutesOf() cannot see.
+function minutesOfSec(hhmmss) {
+    const p = String(hhmmss || '').split(':');
+    if (p.length < 2) return 0;
+    return (+p[0]) * 3600 + (+p[1]) * 60 + (p.length > 2 ? (+p[2]) : 0);
+}
 function pushPunch(empId, iso, time, direction, source, site, by, geo) {
     const rec = { id: 'PN-' + String(nextPunchSeq++).padStart(4, '0'), empId: empId, date: iso, time: time,
                   direction: direction, source: source || 'Web', site: site || '', by: by || '',
@@ -6813,7 +6820,7 @@ function runViewHooks(viewId) {
     if (viewId === 'payroll') { if (payrollStage === 0) initPayrollEngine(); else renderPayrollUI(); }
     if (viewId === 'attendance') { renderEdgeLogs(); renderAttendanceSnapshot(); renderAttendancePolicy(); renderRegularisations(); renderCompOff(); renderGeoFences(); }
     if (viewId === 'reports') renderReportCenter();
-    if (viewId === 'attendance-register') renderManualAttendance();
+    if (viewId === 'attendance-register') { renderManualAttendance(); renderEsslRegisterLink(); }
     if (viewId === 'att-requests') renderAttendanceRequests();
     if (viewId === 'essl') renderEsslView();
     if (viewId === 'special-powers') renderSpecialPowers();
@@ -11133,8 +11140,24 @@ function readImportFile(file) {
         return;
     }
     if (/\.xls$/.test(name)) {
-        show('The old binary .xls format is not supported. Open it in Excel and save as .xlsx or CSV.', 'var(--danger)');
-        return showToast('Save the file as .xlsx or CSV and try again.', 'error');
+        const fr = new FileReader();
+        fr.onload = () => {
+            try {
+                const res = parseXLS(fr.result);
+                const sheet = res.sheets[0] || { name: '', rows: [] };
+                importState.sheetName = sheet.name;
+                show('Read <strong>' + esc(file.name) + '</strong> — sheet "' + esc(sheet.name) + '"' +
+                    (res.sheetCount > 1 ? ' (first of ' + res.sheetCount + ' sheets)' : '') +
+                    ', ' + Math.max(0, sheet.rows.length - 1) + ' data row(s).', 'var(--success)');
+                ingestRows(sheet.rows, file.name);
+            } catch (err) {
+                show('Could not read that workbook — ' + esc(err.message), 'var(--danger)');
+                showToast(err.message, 'error');
+            }
+        };
+        fr.onerror = () => show('Could not read the file.', 'var(--danger)');
+        fr.readAsArrayBuffer(file);
+        return;
     }
     const fr = new FileReader();
     fr.onload = () => {
@@ -15247,6 +15270,274 @@ function sendWAMessage() {
 }
 
 // ==========================================================================
+// LEGACY .xls READER (OLE2 compound file + BIFF8)
+// eSSL / eTimeTrackLite exports "Log Records" as a real binary .xls, so the
+// module reads that format directly rather than asking HR to re-save every
+// file. No library: the compound-file container and the handful of BIFF
+// records that carry cell values are walked by hand.
+// ==========================================================================
+function parseXLS(arrayBuffer) {
+    const dv = new DataView(arrayBuffer);
+    const u8 = new Uint8Array(arrayBuffer);
+    const SIG = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+    for (let i = 0; i < 8; i++) {
+        if (u8[i] !== SIG[i]) throw new Error('Not an .xls file — the compound-file signature is missing.');
+    }
+    const sectorSize = 1 << dv.getUint16(30, true);
+    const miniSectorSize = 1 << dv.getUint16(32, true);
+    const dirStart = dv.getUint32(48, true);
+    const miniCutoff = dv.getUint32(56, true);
+    const miniFatStart = dv.getUint32(60, true);
+    const difatStart = dv.getUint32(68, true);
+    const difatCount = dv.getUint32(72, true);
+    const sectorOffset = s => (s + 1) * sectorSize;
+
+    // --- DIFAT: the list of sectors that hold the FAT ---
+    const fatSectors = [];
+    for (let i = 0; i < 109; i++) {
+        const s = dv.getUint32(76 + i * 4, true);
+        if (s === 0xFFFFFFFE || s === 0xFFFFFFFF) break;
+        fatSectors.push(s);
+    }
+    let next = difatStart;
+    for (let n = 0; n < difatCount && next !== 0xFFFFFFFE && next !== 0xFFFFFFFF; n++) {
+        const base = sectorOffset(next);
+        const per = (sectorSize / 4) - 1;
+        for (let i = 0; i < per; i++) {
+            const s = dv.getUint32(base + i * 4, true);
+            if (s === 0xFFFFFFFE || s === 0xFFFFFFFF) break;
+            fatSectors.push(s);
+        }
+        next = dv.getUint32(base + per * 4, true);
+    }
+    // --- FAT: sector chains ---
+    const fat = [];
+    fatSectors.forEach(fs => {
+        const base = sectorOffset(fs);
+        for (let i = 0; i < sectorSize / 4; i++) fat.push(dv.getUint32(base + i * 4, true));
+    });
+    function chain(start, table) {
+        const out = [];
+        let s = start, guard = 0;
+        while (s !== 0xFFFFFFFE && s !== 0xFFFFFFFF && s < table.length && guard++ < 1000000) {
+            out.push(s); s = table[s];
+        }
+        return out;
+    }
+    function readChain(start, size, table, secSize, offsetOf, source) {
+        const sectors = chain(start, table);
+        const total = size || sectors.length * secSize;
+        const out = new Uint8Array(total);
+        let wrote = 0;
+        for (const s of sectors) {
+            const from = offsetOf(s);
+            const take = Math.min(secSize, total - wrote);
+            if (take <= 0) break;
+            out.set(source.subarray(from, from + take), wrote);
+            wrote += take;
+        }
+        return out;
+    }
+
+    // --- Directory ---
+    const dirBytes = readChain(dirStart, 0, fat, sectorSize, sectorOffset, u8);
+    const entries = [];
+    for (let off = 0; off + 128 <= dirBytes.length; off += 128) {
+        const nameLen = dirBytes[off + 64] | (dirBytes[off + 65] << 8);
+        let name = '';
+        for (let i = 0; i + 1 < Math.max(0, nameLen - 2); i += 2) {
+            name += String.fromCharCode(dirBytes[off + i] | (dirBytes[off + i + 1] << 8));
+        }
+        const dvd = new DataView(dirBytes.buffer, dirBytes.byteOffset + off, 128);
+        entries.push({ name: name, type: dirBytes[off + 66], start: dvd.getUint32(116, true), size: dvd.getUint32(120, true) });
+    }
+    const root = entries.find(e => e.type === 5);
+    if (!root) throw new Error('The .xls file has no root directory entry.');
+
+    // --- Mini FAT, for streams below the cutoff ---
+    const miniFatBytes = readChain(miniFatStart, 0, fat, sectorSize, sectorOffset, u8);
+    const miniFat = [];
+    {
+        const mdv = new DataView(miniFatBytes.buffer, miniFatBytes.byteOffset, miniFatBytes.length);
+        for (let i = 0; i + 4 <= miniFatBytes.length; i += 4) miniFat.push(mdv.getUint32(i, true));
+    }
+    const miniStream = readChain(root.start, root.size, fat, sectorSize, sectorOffset, u8);
+
+    function readStream(entry) {
+        if (entry.size < miniCutoff) {
+            return readChain(entry.start, entry.size, miniFat, miniSectorSize, s => s * miniSectorSize, miniStream);
+        }
+        return readChain(entry.start, entry.size, fat, sectorSize, sectorOffset, u8);
+    }
+
+    const wbEntry = entries.find(e => e.type === 2 && (e.name === 'Workbook' || e.name === 'Book'));
+    if (!wbEntry) throw new Error('No Workbook stream in this .xls file.');
+    return parseBIFF(readStream(wbEntry));
+}
+
+// --- BIFF record walk -----------------------------------------------------
+function parseBIFF(bytes) {
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
+    const REC = { BOF: 0x0809, EOF: 0x000A, BOUNDSHEET: 0x0085, SST: 0x00FC, CONTINUE: 0x003C,
+                  LABELSST: 0x00FD, LABEL: 0x0204, RSTRING: 0x00D6, NUMBER: 0x0203, RK: 0x027E,
+                  MULRK: 0x00BD, FORMULA: 0x0006, STRING: 0x0207, BLANK: 0x0201, MULBLANK: 0x00BE,
+                  DATEMODE: 0x0022 };
+
+    // First pass: index every record, and collect SST blocks and sheet entries.
+    const records = [];
+    for (let pos = 0; pos + 4 <= bytes.length;) {
+        const type = dv.getUint16(pos, true);
+        const len = dv.getUint16(pos + 2, true);
+        if (pos + 4 + len > bytes.length) break;
+        records.push({ type: type, start: pos + 4, len: len });
+        pos += 4 + len;
+    }
+
+    const sheets = [];
+    let sstIndex = -1;
+    let date1904 = false;
+    records.forEach((r, i) => {
+        if (r.type === REC.BOUNDSHEET) {
+            const pos = dv.getUint32(r.start, true);
+            const cch = bytes[r.start + 6];
+            const flags = bytes[r.start + 7];
+            let name = '';
+            if (flags & 0x01) { for (let k = 0; k < cch; k++) name += String.fromCharCode(dv.getUint16(r.start + 8 + k * 2, true)); }
+            else { for (let k = 0; k < cch; k++) name += String.fromCharCode(bytes[r.start + 8 + k]); }
+            sheets.push({ name: name, bofPos: pos, rows: [] });
+        }
+        if (r.type === REC.SST && sstIndex < 0) sstIndex = i;
+        if (r.type === REC.DATEMODE) date1904 = dv.getUint16(r.start, true) === 1;
+    });
+
+    // --- Shared strings. A string can run past the end of its record and
+    // continue in the next one, where the 8/16-bit flag is restated — which is
+    // the part that corrupts text if it is not handled.
+    const sst = [];
+    if (sstIndex >= 0) {
+        const blocks = [records[sstIndex]];
+        for (let i = sstIndex + 1; i < records.length && records[i].type === REC.CONTINUE; i++) blocks.push(records[i]);
+        let b = 0, off = blocks[0].start + 8;                 // skip cstTotal + cstUnique
+        const end = () => blocks[b].start + blocks[b].len;
+        const advance = () => { if (off >= end() && b + 1 < blocks.length) { b++; off = blocks[b].start; return true; } return false; };
+        const count = dv.getUint32(blocks[0].start + 4, true);
+        for (let n = 0; n < count; n++) {
+            advance();
+            if (off + 3 > end()) break;
+            const cch = dv.getUint16(off, true); off += 2;
+            let flags = bytes[off]; off += 1;
+            let rich = 0, ext = 0;
+            if (flags & 0x08) { rich = dv.getUint16(off, true); off += 2; }
+            if (flags & 0x04) { ext = dv.getUint32(off, true); off += 4; }
+            let text = '', read = 0;
+            while (read < cch) {
+                if (off >= end()) {
+                    if (b + 1 >= blocks.length) break;
+                    b++; off = blocks[b].start;
+                    flags = bytes[off]; off += 1;          // restated on continuation
+                }
+                if (flags & 0x01) { text += String.fromCharCode(dv.getUint16(off, true)); off += 2; }
+                else { text += String.fromCharCode(bytes[off]); off += 1; }
+                read++;
+            }
+            // Rich-text runs and far-east extras sit after the characters.
+            let skip = rich * 4 + ext;
+            while (skip > 0) {
+                const left = end() - off;
+                if (skip <= left) { off += skip; skip = 0; }
+                else { skip -= left; if (b + 1 >= blocks.length) break; b++; off = blocks[b].start; }
+            }
+            sst.push(text);
+        }
+    }
+
+    function rkToNumber(v) {
+        const isInt = v & 0x02, div100 = v & 0x01;
+        let num;
+        if (isInt) { num = v >> 2; }
+        else {
+            const buf = new ArrayBuffer(8);
+            new DataView(buf).setUint32(4, v & 0xFFFFFFFC, true);
+            num = new DataView(buf).getFloat64(0, true);
+        }
+        return div100 ? num / 100 : num;
+    }
+    function xlUnicode(start) {
+        const cch = dv.getUint16(start, true);
+        const flags = bytes[start + 2];
+        let s = '';
+        if (flags & 0x01) { for (let k = 0; k < cch; k++) s += String.fromCharCode(dv.getUint16(start + 3 + k * 2, true)); }
+        else { for (let k = 0; k < cch; k++) s += String.fromCharCode(bytes[start + 3 + k]); }
+        return s;
+    }
+    // Excel keeps dates as a serial; only cells actually formatted as dates
+    // matter here, and eSSL writes its stamps as text, so numbers stay numbers.
+    function setCell(sheet, row, col, value) {
+        if (!sheet.rows[row]) sheet.rows[row] = [];
+        sheet.rows[row][col] = value;
+    }
+
+    // Second pass: walk each sheet's substream from its BOF.
+    sheets.forEach(sheet => {
+        let i = records.findIndex(r => r.type === REC.BOF && r.start - 4 === sheet.bofPos);
+        if (i < 0) return;
+        for (i++; i < records.length; i++) {
+            const r = records[i];
+            if (r.type === REC.EOF) break;
+            const s = r.start;
+            switch (r.type) {
+                case REC.LABELSST: {
+                    const idx = dv.getUint32(s + 6, true);
+                    setCell(sheet, dv.getUint16(s, true), dv.getUint16(s + 2, true), sst[idx] === undefined ? '' : sst[idx]);
+                    break;
+                }
+                case REC.LABEL:
+                    setCell(sheet, dv.getUint16(s, true), dv.getUint16(s + 2, true), xlUnicode(s + 6));
+                    break;
+                case REC.RSTRING:
+                    setCell(sheet, dv.getUint16(s, true), dv.getUint16(s + 2, true), xlUnicode(s + 6));
+                    break;
+                case REC.NUMBER:
+                    setCell(sheet, dv.getUint16(s, true), dv.getUint16(s + 2, true), dv.getFloat64(s + 6, true));
+                    break;
+                case REC.RK:
+                    setCell(sheet, dv.getUint16(s, true), dv.getUint16(s + 2, true), rkToNumber(dv.getUint32(s + 6, true)));
+                    break;
+                case REC.MULRK: {
+                    const row = dv.getUint16(s, true), first = dv.getUint16(s + 2, true);
+                    const n = Math.floor((r.len - 6) / 6);
+                    for (let k = 0; k < n; k++) setCell(sheet, row, first + k, rkToNumber(dv.getUint32(s + 4 + k * 6 + 2, true)));
+                    break;
+                }
+                case REC.FORMULA: {
+                    // A formula with a string result is followed by a STRING record.
+                    const row = dv.getUint16(s, true), col = dv.getUint16(s + 2, true);
+                    const isText = dv.getUint16(s + 12, true) === 0xFFFF && bytes[s + 6] === 0x00;
+                    if (isText) {
+                        const nxt = records[i + 1];
+                        if (nxt && nxt.type === REC.STRING) setCell(sheet, row, col, xlUnicode(nxt.start));
+                    } else {
+                        setCell(sheet, row, col, dv.getFloat64(s + 6, true));
+                    }
+                    break;
+                }
+                default: break;
+            }
+        }
+        // Square the rows off so every row is an array of the same width.
+        let width = 0;
+        sheet.rows.forEach(r => { if (r && r.length > width) width = r.length; });
+        for (let r = 0; r < sheet.rows.length; r++) {
+            const row = sheet.rows[r] || [];
+            for (let c = 0; c < width; c++) if (row[c] === undefined) row[c] = '';
+            sheet.rows[r] = row;
+        }
+    });
+
+    return { sheets: sheets.map(s => ({ name: s.name, rows: s.rows })), sheetCount: sheets.length, date1904: date1904 };
+}
+
+// ==========================================================================
 // eSSL / BIOMETRIC DEVICE IMPORT
 //
 // eSSL devices (and the eTimeTrackLite software behind them) know people by an
@@ -15267,6 +15558,11 @@ var esslConfig = {
     dateFormat: 'auto',      // auto | dmy | mdy | ymd
     directionMode: 'auto',   // auto (alternate) | column (device state) | inout-device
     dedupe: true,
+    // eSSL readers commonly register the same finger twice a second or two
+    // apart. Left alone, alternating in/out turns 09:16:45 and 09:16:46 into a
+    // full work session of one second, and the real day's hours disappear into
+    // loss of pay. Punches closer together than this are treated as one.
+    debounceSeconds: 120,
     ignoreBefore: '',        // never import punches before this date
     lastImport: ''
 };
@@ -15373,7 +15669,8 @@ function esslParseStamp(v, fmt) {
     else { d = p.parts[0]; mo = p.parts[1]; y = p.parts[2]; }
     if (y < 100) y += 2000;
     if (!y || !mo || !d || mo > 12 || d > 31 || p.hh > 23 || p.mm > 59) return null;
-    return { iso: y + '-' + pad2(mo) + '-' + pad2(d), time: pad2(p.hh) + ':' + pad2(p.mm) };
+    return { iso: y + '-' + pad2(mo) + '-' + pad2(d), time: pad2(p.hh) + ':' + pad2(p.mm),
+             full: pad2(p.hh) + ':' + pad2(p.mm) + ':' + pad2(p.ss || 0) };
 }
 
 // --- Direction -----------------------------------------------------------
@@ -15413,7 +15710,27 @@ function readEsslFile(file) {
         fr.readAsArrayBuffer(file);
         return;
     }
-    if (/\.xls$/.test(name)) return esslStatus('The old binary .xls format is not supported. Save it as .xlsx or CSV.', 'var(--danger)');
+    if (/\.xls$/.test(name)) {
+        // eSSL exports a real binary .xls, and the report runs across as many
+        // sheets as it needs, so every sheet is read and then joined.
+        const fr = new FileReader();
+        fr.onload = () => {
+            try {
+                const res = parseXLS(fr.result);
+                const rows = [];
+                res.sheets.forEach(sh => sh.rows.forEach(r => rows.push(r)));
+                esslStatus('Read <strong>' + esc(file.name) + '</strong> — ' + res.sheetCount +
+                    ' sheet(s), ' + rows.length + ' row(s).', 'var(--success)');
+                ingestEsslRows(rows, file.name);
+            } catch (err) {
+                esslStatus('Could not read that workbook — ' + esc(err.message), 'var(--danger)');
+                showToast(err.message, 'error');
+            }
+        };
+        fr.onerror = () => esslStatus('Could not read the file.', 'var(--danger)');
+        fr.readAsArrayBuffer(file);
+        return;
+    }
     const fr = new FileReader();
     fr.onload = () => {
         const text = String(fr.result);
@@ -15431,10 +15748,90 @@ function ingestEsslPasted() {
     ingestEsslRows(parseCSV(text, detectDelimiter(text)), 'pasted text');
 }
 
+// eSSL's "Log Records (Employee Wise)" is a grouped report, not a table: the
+// employee is a section heading and the punch rows under it carry only a
+// timestamp and a device. So the employee has to be carried down the rows
+// rather than read out of a column.
+function esslLooksGrouped(rows) {
+    let heads = 0;
+    for (let i = 0; i < rows.length && heads < 2; i++) {
+        if (esslEmployeeHeading(rows[i])) heads++;
+    }
+    return heads >= 1;
+}
+// "Employee | | LB0016 : Surajit Sarkar" -> { code, name }
+function esslEmployeeHeading(row) {
+    if (!row) return null;
+    let labelAt = -1;
+    for (let i = 0; i < row.length; i++) {
+        if (/^employee\b/i.test(String(row[i] == null ? '' : row[i]).trim())) { labelAt = i; break; }
+    }
+    if (labelAt < 0) return null;
+    for (let i = labelAt + 1; i < row.length; i++) {
+        const v = String(row[i] == null ? '' : row[i]).trim();
+        if (!v) continue;
+        const m = v.match(/^(.+?)\s*:\s*(.+)$/);
+        if (m) return { code: m[1].trim(), name: m[2].trim() };
+        return { code: v, name: '' };
+    }
+    return null;
+}
+function esslSectionValue(row, label) {
+    if (!row) return '';
+    let at = -1;
+    for (let i = 0; i < row.length; i++) {
+        if (new RegExp('^' + label + '\\b', 'i').test(String(row[i] == null ? '' : row[i]).trim())) { at = i; break; }
+    }
+    if (at < 0) return '';
+    for (let i = at + 1; i < row.length; i++) {
+        const v = String(row[i] == null ? '' : row[i]).trim();
+        if (v) return v;
+    }
+    return '';
+}
+// Flatten the report into the plain table the rest of the importer expects:
+// code, name, department, timestamp, device, direction.
+function esslFlattenGrouped(rows) {
+    const out = [];
+    let emp = null, dept = '';
+    rows.forEach(row => {
+        const head = esslEmployeeHeading(row);
+        if (head) { emp = head; return; }
+        const d = esslSectionValue(row, 'department');
+        if (d && !esslEmployeeHeading(row)) {
+            // Only treat it as a department heading if the row says so.
+            if (row.some(c => /^department\b/i.test(String(c == null ? '' : c).trim()))) { dept = d; return; }
+        }
+        if (!emp) return;
+        // A punch row is one whose first non-empty cell reads as a date-time.
+        let stamp = '', rest = [];
+        for (let i = 0; i < row.length; i++) {
+            const v = row[i];
+            const t = String(v == null ? '' : v).trim();
+            if (!t) continue;
+            if (!stamp && esslSplitStamp(v)) { stamp = v; continue; }
+            if (stamp) rest.push(t);
+        }
+        if (!stamp) return;
+        // Whatever follows the stamp is the device, then the direction.
+        out.push([emp.code, emp.name, dept, stamp, rest[0] || '', rest[1] || '']);
+    });
+    return out;
+}
+
 // Work out what each column is, then hand over to the preview.
 function ingestEsslRows(rows, source) {
     rows = (rows || []).filter(r => r && r.some(c => String(c == null ? '' : c).trim() !== ''));
     if (!rows.length) { esslStage = null; return renderEsslPreview(); }
+
+    if (esslLooksGrouped(rows)) {
+        const flat = esslFlattenGrouped(rows);
+        esslStage = { rows: flat, header: ['Employee code', 'Name', 'Department', 'Log date', 'Device', 'Direction'],
+            hasHeader: true, grouped: true, width: 6, source: source,
+            cols: { userId: 0, name: 1, dept: 2, stamp: 3, device: 4, direction: 5 } };
+        return buildEsslPreview();
+    }
+
     const hasHeader = esslLooksLikeHeader(rows[0]);
     const header = hasHeader ? rows[0] : [];
     const body = hasHeader ? rows.slice(1) : rows;
@@ -15464,7 +15861,8 @@ function buildEsslPreview() {
     st.fmtUsed = fmt;
 
     const seenKeys = {};              // within this file
-    const parsed = [], problems = [], unmapped = {};
+    let parsed = [];
+    const problems = [], unmapped = {};
     st.rows.forEach((r, i) => {
         const rawUser = String(col(r, 'userId') == null ? '' : col(r, 'userId')).trim();
         const stampRaw = st.cols.stamp !== undefined ? col(r, 'stamp')
@@ -15477,29 +15875,53 @@ function buildEsslPreview() {
         }
         const empId = esslConfig.map[rawUser];
         if (!empId || !empById(empId)) {
-            unmapped[rawUser] = (unmapped[rawUser] || 0) + 1;
+            const known = unmapped[rawUser] || { count: 0, name: '' };
+            known.count++;
+            if (!known.name && st.cols.name !== undefined) known.name = String(col(r, 'name') || '').trim();
+            unmapped[rawUser] = known;
             return;
         }
         const emp = empById(empId);
         if (emp.doj && when.iso < emp.doj) { problems.push({ row: i + 1, why: emp.name + ' had not joined on ' + prettyDate(when.iso), soft: true }); return; }
         if (emp.exitDate && when.iso > emp.exitDate) { problems.push({ row: i + 1, why: emp.name + ' had left by ' + prettyDate(when.iso), soft: true }); return; }
-        parsed.push({ empId: empId, iso: when.iso, time: when.time,
+        parsed.push({ empId: empId, iso: when.iso, time: when.time, full: when.full,
                       dir: esslParseDirection(col(r, 'direction')),
                       device: String(col(r, 'device') || '').trim(), row: i + 1 });
     });
 
-    // Direction, where the device did not say: sort the person's day and
-    // alternate from the first punch, which is what an in/out reader produces.
+    // Collapse repeat reads, then resolve direction. Order matters: alternating
+    // in/out across un-collapsed double reads is what destroys the hours.
     const byDay = {};
     parsed.forEach(p => { const k = p.empId + '|' + p.iso; (byDay[k] = byDay[k] || []).push(p); });
+    let collapsed = 0;
+    const kept = [], missingPunch = [];
     Object.keys(byDay).forEach(k => {
-        const list = byDay[k].sort((a, b) => a.time.localeCompare(b.time));
-        if (esslConfig.directionMode === 'auto' || list.every(p => !p.dir)) {
-            list.forEach((p, i) => { if (!p.dir) p.dir = (i % 2 === 0) ? 'IN' : 'OUT'; });
-        } else {
-            list.forEach((p, i) => { if (!p.dir) p.dir = (i % 2 === 0) ? 'IN' : 'OUT'; });
+        let list = byDay[k].sort((a, b) => minutesOfSec(a.full) - minutesOfSec(b.full));
+        if (esslConfig.debounceSeconds > 0) {
+            const out = [];
+            list.forEach(p => {
+                const last = out[out.length - 1];
+                if (last && (minutesOfSec(p.full) - minutesOfSec(last.full)) <= esslConfig.debounceSeconds) {
+                    collapsed++;
+                    last.repeats = (last.repeats || 1) + 1;
+                    return;
+                }
+                out.push(p);
+            });
+            list = out;
         }
+        // Where the device recorded no direction, alternate from the first
+        // punch of the day — which is what an in/out reader actually produces.
+        list.forEach((p, i) => { if (!p.dir) p.dir = (i % 2 === 0) ? 'IN' : 'OUT'; });
+        // An odd count means a punch the reader never captured. The day still
+        // imports, but it is named so HR can fix it rather than it quietly
+        // becoming a short day in payroll.
+        if (list.length % 2 === 1) missingPunch.push({ empId: list[0].empId, iso: list[0].iso, punches: list.length });
+        list.forEach(p => kept.push(p));
     });
+    parsed = kept;
+    st.collapsed = collapsed;
+    st.missingPunch = missingPunch;
 
     // Duplicates: against this file, and against punches already in the log.
     const fresh = [], dupes = [];
@@ -15579,6 +16001,14 @@ function undoEsslBatch(id) {
 
 // --- Screens -------------------------------------------------------------
 function renderEsslView() { renderEsslStats(); renderEsslMapping(); renderEsslPreview(); renderEsslBatches(); }
+// The shortcut on the attendance register only appears where the module is held.
+function renderEsslRegisterLink() {
+    const el = document.getElementById('reg-essl-link');
+    if (!el) return;
+    const may = typeof canAccessView === 'function' && canAccessView('essl') &&
+        (typeof roleMayOpen !== 'function' || roleMayOpen('essl'));
+    el.style.display = may ? 'inline-flex' : 'none';
+}
 
 function renderEsslStats() {
     const el = document.getElementById('essl-stats');
@@ -15663,6 +16093,31 @@ function autoMatchEsslIds() {
     showToast(added ? added + ' device ID(s) matched by employee code.' + (clashed ? ' ' + clashed + ' clashed and were left alone.' : '')
         : 'Nothing new to match.', added ? 'success' : 'warning');
 }
+// A grouped report names each employee, so an unmapped ID whose name matches
+// somebody in the directory can be resolved without typing.
+function esslNormName(n) { return String(n || '').toLowerCase().replace(/[^a-z]+/g, ''); }
+function esslNameMatches() {
+    const st = esslStage;
+    if (!st || !st.unmapped) return [];
+    const out = [];
+    Object.keys(st.unmapped).forEach(code => {
+        const name = st.unmapped[code].name;
+        if (!name) return;
+        const hits = employees.filter(e => esslNormName(e.name) === esslNormName(name));
+        if (hits.length === 1) out.push({ code: code, empId: hits[0].id, name: hits[0].name });
+    });
+    return out;
+}
+function applyEsslNameMatches() {
+    const hits = esslNameMatches();
+    if (!hits.length) return showToast('No unmapped ID matches a name in the directory.', 'warning');
+    hits.forEach(h => { esslConfig.map[h.code] = h.empId; });
+    audit('eSSL mapping auto-matched', hits.length + ' device ID(s) matched by name', 'Attendance');
+    buildEsslPreview();
+    renderEsslMapping();
+    renderEsslStats();
+    showToast(hits.length + ' device ID(s) matched to employees by name.', 'success');
+}
 function exportEsslMapping() {
     const rows = [['eSSL Device Mapping', prettyDate(DEMO_TODAY)], [], ['Device User ID', 'Employee Code', 'Employee', 'Department', 'Date of joining']];
     Object.keys(esslConfig.map).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).forEach(k => {
@@ -15703,6 +16158,13 @@ function renderEsslPreview() {
             (st.hasHeader ? ', header row detected' : ', no header row — read as a raw device log') + '. Nothing is written until you import.</p></div>' +
         '</div>' +
 
+        (st.grouped
+            ? '<div class="card" style="background:#f5f3ff; border-color:#ddd6fe; font-size:0.83rem; margin-bottom:16px;">' +
+              '<strong>Read as an eSSL &ldquo;Log Records (Employee Wise)&rdquo; report.</strong> The employee is a section heading in this ' +
+              'layout rather than a column, so each punch was attributed to the heading above it. Employee code, name, department, ' +
+              'timestamp and device were all taken from the report structure — there is nothing to map by hand.</div>'
+            : '') +
+        (st.grouped ? '' :
         '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:16px;">' +
             colPick('userId', 'Device user ID') +
             colPick('stamp', 'Date &amp; time') +
@@ -15710,7 +16172,7 @@ function renderEsslPreview() {
             colPick('time', 'Time (if separate)') +
             colPick('direction', 'In / out state') +
             colPick('device', 'Device') +
-        '</div>' +
+        '</div>') +
 
         '<div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; margin-bottom:16px; padding:12px; background:var(--bg-main); border-radius:8px;">' +
             '<div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Date format</label>' +
@@ -15720,10 +16182,32 @@ function renderEsslPreview() {
                 '</select></div>' +
             '<div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Ignore punches before</label>' +
                 '<input type="date" value="' + esc(esslConfig.ignoreBefore || '') + '" onchange="setEsslIgnoreBefore(this.value)" style="font-size:0.8rem; width:auto;"></div>' +
+            '<div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Treat repeat reads within</label>' +
+                '<select onchange="setEsslDebounce(this.value)" style="font-size:0.8rem; width:auto;">' +
+                [0, 5, 30, 60, 120, 300].map(v => '<option value="' + v + '"' + (esslConfig.debounceSeconds === v ? ' selected' : '') + '>' +
+                    (v === 0 ? 'Do not collapse' : v < 60 ? v + ' seconds' : (v / 60) + ' minute' + (v > 60 ? 's' : '')) + '</option>').join('') +
+                '</select></div>' +
             '<label style="display:flex; gap:7px; align-items:center; font-size:0.8rem; text-transform:none; font-weight:400; color:var(--text-dark);">' +
                 '<input type="checkbox" style="width:15px;height:15px;"' + (esslConfig.dedupe ? ' checked' : '') + ' onchange="setEsslDedupe(this.checked)">' +
                 'Skip punches already in the log</label>' +
         '</div>' +
+
+        (st.collapsed
+            ? '<div class="card" style="background:#eff6ff; border-color:#bfdbfe; font-size:0.83rem; margin-bottom:14px;">' +
+              '<strong>' + st.collapsed + ' repeat read(s) collapsed.</strong> The reader registered the same finger more than once ' +
+              'within ' + (esslConfig.debounceSeconds < 60 ? esslConfig.debounceSeconds + ' seconds' : (esslConfig.debounceSeconds / 60) + ' minute(s)') +
+              '. Without this they would be read as in-then-out a second apart, and the day\'s real hours would be lost to payroll.</div>'
+            : '') +
+
+        ((st.missingPunch || []).length
+            ? '<div class="card" style="background:#fffbeb; border-color:#fde68a; font-size:0.83rem; margin-bottom:14px;">' +
+              '<strong>' + st.missingPunch.length + ' employee-day(s) have a punch missing</strong> — an odd number of reads, so somebody ' +
+              'clocked in without clocking out or the reader missed one. They import as they are; fix them on the Attendance Register, ' +
+              'or let the employee raise a Forgot Punch request.' +
+              '<div style="font-size:0.78rem; color:var(--text-muted); margin-top:7px; max-height:90px; overflow-y:auto;">' +
+              st.missingPunch.slice(0, 30).map(m => esc(empName(m.empId)) + ' · ' + prettyDate(m.iso) + ' · ' + m.punches + ' read(s)').join('<br>') +
+              (st.missingPunch.length > 30 ? '<br>…and ' + (st.missingPunch.length - 30) + ' more' : '') + '</div></div>'
+            : '') +
 
         (st.detected && !st.detected.certain
             ? '<div class="card" style="background:#fffbeb; border-color:#fde68a; font-size:0.83rem; margin-bottom:14px;">' +
@@ -15746,11 +16230,15 @@ function renderEsslPreview() {
         (unmappedKeys.length
             ? '<div class="card" style="background:#fffbeb; border-color:#fde68a; margin-bottom:14px;">' +
               '<strong style="font-size:0.88rem;">' + unmappedKeys.length + ' device ID(s) belong to nobody yet</strong>' +
-              '<p style="font-size:0.8rem; color:var(--text-muted); margin:5px 0 10px;">Their punches are held back rather than guessed at. Map them and the preview updates.</p>' +
+              '<p style="font-size:0.8rem; color:var(--text-muted); margin:5px 0 10px;">Their punches are held back rather than guessed at. Map them and the preview updates.' +
+              (esslNameMatches().length ? ' <button class="btn btn-primary" style="padding:4px 10px; font-size:0.76rem; margin-left:6px;" onclick="applyEsslNameMatches()">Match ' +
+                  esslNameMatches().length + ' by name</button>' : '') + '</p>' +
               '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
-              unmappedKeys.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(k =>
+              unmappedKeys.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).slice(0, 60).map(k =>
                   '<button class="btn btn-outline" style="padding:5px 10px; font-size:0.78rem;" onclick="addEsslMapRow(\'' + esc(k) + '\')">' +
-                  'ID ' + esc(k) + ' <span style="color:var(--text-muted);">· ' + st.unmapped[k] + ' punch(es)</span></button>').join('') +
+                  'ID ' + esc(k) + (st.unmapped[k].name ? ' · ' + esc(st.unmapped[k].name) : '') +
+                  ' <span style="color:var(--text-muted);">· ' + st.unmapped[k].count + ' punch(es)</span></button>').join('') +
+              (unmappedKeys.length > 60 ? '<span style="font-size:0.76rem; color:var(--text-muted); align-self:center;">…and ' + (unmappedKeys.length - 60) + ' more</span>' : '') +
               '</div></div>'
             : '') +
 
@@ -15788,6 +16276,7 @@ function setEsslCol(field, value) {
 function setEsslDateFormat(v) { esslConfig.dateFormat = v; if (esslStage) buildEsslPreview(); }
 function setEsslIgnoreBefore(v) { esslConfig.ignoreBefore = v; if (esslStage) buildEsslPreview(); }
 function setEsslDedupe(v) { esslConfig.dedupe = v; if (esslStage) buildEsslPreview(); else renderEsslStats(); }
+function setEsslDebounce(v) { esslConfig.debounceSeconds = parseInt(v, 10) || 0; if (esslStage) buildEsslPreview(); }
 
 function renderEsslBatches() {
     const tb = document.getElementById('essl-batch-table');
