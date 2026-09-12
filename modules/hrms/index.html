@@ -515,6 +515,16 @@
         .home-stat .hg-lab { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
         .nav-item.nav-home { margin-bottom: 6px; }
 
+        /* A short, plain explanation at the top of a screen whose sequence is not
+           obvious the first time. Not a tooltip: the question "now what?" needs
+           answering where the work happens. */
+        .how-box { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 11px;
+            padding: 16px 20px; margin-bottom: 20px; font-size: 0.86rem; color: #0c4a6e; }
+        .how-box strong { display: block; margin-bottom: 8px; font-size: 0.9rem; }
+        .how-box ol { margin: 0; padding-left: 20px; }
+        .how-box li { margin-bottom: 5px; line-height: 1.6; }
+        .how-box li:last-child { margin-bottom: 0; }
+
         /* Topbar identity chip — replaces the old role simulator. */
         .who { display: flex; align-items: center; gap: 10px; padding: 4px 10px 4px 4px; border: 1px solid var(--border);
             border-radius: 999px; background: var(--bg-main); }
@@ -802,6 +812,17 @@
                         <button class="btn btn-outline" onclick="exportCompanyRegister()">⬇️ Licence Register (CSV)</button>
                         <button class="btn btn-primary" onclick="openCompanyEditor('')">+ Add Company</button>
                     </div>
+                </div>
+                <div class="how-box">
+                    <strong>How a company gets going</strong>
+                    <ol>
+                        <li><strong>Add the company</strong> and tick the parts of the system it may use.</li>
+                        <li><strong>Create its first login</strong> &mdash; normally the HR manager. You will be
+                            offered this straight after step 1. They get their own email and password.</li>
+                        <li><strong>They sign in at the same address as you</strong>, with their own email. There
+                            is no separate web address per company: the account decides which company they are in,
+                            and they never see another company&rsquo;s people, salaries or documents.</li>
+                    </ol>
                 </div>
                 <div class="stat-strip" id="provider-stats"></div>
                 <div id="provider-company-list"></div>
@@ -19916,17 +19937,78 @@ function saveCompany() {
         d.lastHeadcount = 0;
         companies.push(d);
         provLog('Company created', d.name, d.plan + ' plan · ' + d.modules.length + ' modules · ' + (d.seats || '∞') + ' seats');
-        showToast(d.name + ' created with ' + d.modules.length + ' module(s).', 'success');
     }
-    // Anyone signed in against this company feels the change immediately.
-    if (session && session.companyId === d.id) {
-        const u = userByEmail(session.email);
-        if (u) session.modules = effectiveModules(u);
-        applyRoleVisibility(); applyAccessVisibility(); renderWhoBar();
-    }
-    saveIdentity();
-    closeModal('modal-company');
-    refreshProviderViews();
+    const isNew = !existing;
+
+    // A company that exists only in this browser cannot have anybody sign in to
+    // it: the account's company_id would point at nothing. So it goes to the
+    // database first, and only then is it a company.
+    const persisted = (backendLive() && (isNew || existing.remote))
+        ? saveCompanyToBackend(d, isNew)
+        : Promise.resolve(true);
+
+    return persisted.then(ok => {
+        if (!ok) return;
+        // Anyone signed in against this company feels the change immediately.
+        if (session && session.companyId === d.id) {
+            const u = userByEmail(session.email);
+            if (u) session.modules = effectiveModules(u);
+            applyRoleVisibility(); applyAccessVisibility(); renderWhoBar();
+        }
+        saveIdentity();
+        closeModal('modal-company');
+        refreshProviderViews();
+        if (isNew) offerFirstLogin(d);
+        else showToast(d.name + ' now holds ' + d.modules.length + ' module(s).', 'success');
+    });
+}
+
+// Companies live in Postgres with a uuid of their own, so the local CO-001 id is
+// replaced by whatever the database gave the row. Everything on screen keys off
+// company.id, so swapping it here is enough.
+function saveCompanyToBackend(d, isNew) {
+    const row = { name: d.name, code: d.code, industry: d.industry || null, status: d.status,
+                  plan: d.plan, seats: d.seats || 0, active_from: d.activeFrom || null,
+                  valid_till: d.validTill || null, contact: d.contact || null, notes: d.notes || null };
+    const write = isNew
+        ? BiscsBackend.insert('companies', [row]).then(rows => (rows && rows[0] && rows[0].id) || null)
+        : BiscsBackend.update('companies', { id: d.id }, row).then(() => d.id);
+    return write.then(id => {
+        if (!id) throw new Error('The database accepted the company but returned no id.');
+        d.id = id; d.remote = true;
+        return BiscsBackend.client().rpc('set_company_modules',
+            { p_company: id, p_keys: expandModules(d.modules) }).then(r => {
+                if (r && r.error) throw new Error(BiscsBackend.explain(r.error));
+                return true;
+            });
+    }).catch(err => {
+        // Do not leave a half-made company on screen pretending to be real.
+        if (isNew) companies = companies.filter(c => c !== d);
+        showToast('Could not save the company: ' + String(err && err.message || err), 'error');
+        return false;
+    });
+}
+
+// A company with nobody who can sign in to it is not much use, and "now what?"
+// is exactly where this got confusing. So the moment one exists, offer the one
+// thing that has to happen next.
+function offerFirstLogin(company) {
+    showToast(company.name + ' created with ' + expandModules(company.modules).length + ' module(s).', 'success');
+    if (!confirm(company.name + ' is created.\n\nCreate the first login for it now?\n\n' +
+                 'This is the person who will sign in and run HR for ' + company.name +
+                 ' \u2014 usually the HR manager. They get their own email and password, and see only ' +
+                 'what this company holds.')) return;
+    openUserEditor('');
+    // Pre-fill the company so the one field that links the two is not a guess.
+    setTimeout(() => {
+        const co = document.getElementById('us-company');
+        if (co) { co.value = company.id; onUserCompanyChange(company.id); }
+        const role = document.getElementById('us-role');
+        if (role) { role.value = 'hr'; onUserRoleChange('hr'); }
+        const co2 = document.getElementById('us-company');
+        if (co2) co2.value = company.id;
+        const em = document.getElementById('us-email'); if (em) em.focus();
+    }, 60);
 }
 function exportCompanyRegister() {
     const rows = [['BISCS Licence Register', prettyDate(DEMO_TODAY)], []];
