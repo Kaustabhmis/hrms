@@ -535,7 +535,7 @@
             <div style="width: 24px; height: 24px; background: var(--primary); border-radius: 4px;"></div>
             BISCS <span>OS</span>
         </div>
-        <a href="../../index.html" class="back-to-erp">← Back to MAX ERP</a>
+        <a href="../../index.html" class="back-to-erp" id="back-to-erp" style="display:none;">← Back to MAX ERP</a>
         <div class="nav-items" id="sidebar-nav">
 
             <!-- PROVIDER / SUPER ADMIN -->
@@ -19867,11 +19867,27 @@ function accessGuard(viewId) {
     return true;
 }
 
+// The module normally lives at /modules/hrms/ inside the MAX ERP shell, where
+// ../../index.html is the ERP home page. Deployed on its own — Netlify serving
+// this file at the site root, or opened straight from disk — that link points
+// at nothing and a 404 is worse than no link, so the link only appears when
+// there really are two directories above us.
+function showErpLinkIfNested() {
+    const link = document.getElementById('back-to-erp');
+    if (!link) return;
+    const parts = location.pathname.split('/').filter(Boolean);
+    // Drop the file name when the URL names one, so /modules/hrms/index.html and
+    // /modules/hrms/ both count as two directories deep, and / counts as none.
+    if (parts.length && parts[parts.length - 1].indexOf('.') !== -1) parts.pop();
+    if (parts.length >= 2) link.style.display = 'block';
+}
+
 // INIT
 // Nothing renders until somebody signs in. The seeded demo data is captured
 // first so a newly created company has something to start from, then the
 // identity registry is read and the sign-in gate is shown.
 window.onload = () => {
+    showErpLinkIfNested();
     seedDemoDataIntoDom();
     buildViewRoles();
     initNavGroups();
