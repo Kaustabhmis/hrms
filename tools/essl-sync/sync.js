@@ -13,6 +13,8 @@
  * The watermark (the highest log id already pulled) is kept in .watermark so
  * each punch is fetched exactly once, however often this runs.
  *
+ * For a live connection the HRMS can pull from itself, run server.js instead.
+ *
  * Usage:
  *   cp .env.example .env && edit it
  *   npm install
@@ -23,11 +25,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const mysql = require('mysql2/promise');
-
 require('dotenv').config({ path: path.join(__dirname, '.env') });
+const lib = require('./lib');
 
-const cfg = {
+const cfg = Object.assign(lib.loadConfig(), {
     host: process.env.ESSL_DB_HOST || '127.0.0.1',
     port: Number(process.env.ESSL_DB_PORT || 3306),
     user: process.env.ESSL_DB_USER || 'root',
@@ -43,7 +44,7 @@ const cfg = {
     colDevice: process.env.ESSL_COL_DEVICE || 'DeviceId',
     batch: Number(process.env.ESSL_BATCH || 50000),
     outDir: process.env.ESSL_OUT_DIR || path.join(__dirname, 'out')
-};
+});
 
 const WATERMARK = path.join(__dirname, '.watermark');
 const args = process.argv.slice(2);
@@ -91,10 +92,7 @@ async function probeSchema(conn) {
 }
 
 async function main() {
-    const conn = await mysql.createConnection({
-        host: cfg.host, port: cfg.port, user: cfg.user,
-        password: cfg.password, database: cfg.database, dateStrings: false
-    });
+    const conn = await lib.connect(cfg);
     try {
         if (probe) return await probeSchema(conn);
 

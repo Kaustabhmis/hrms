@@ -513,64 +513,76 @@
             <div class="nav-item is-super" data-role="super" style="display:none;" onclick="navigate('provider-modules')">🧩 Module Catalog</div>
             <div class="nav-item is-super" data-role="super" style="display:none;" onclick="navigate('provider-log')">📜 Provisioning Log</div>
 
-            <!-- GLOBAL (All Roles) -->
+            <!-- ADMIN MENU — ordered to follow the employee lifecycle, and
+                 grouped the same way the module catalog is, so a licence
+                 maps onto what appears in the menu. -->
             <div class="nav-label" data-role="admin manager employee">Company</div>
+            <div class="nav-item active" data-role="admin" onclick="navigate('dashboard')">📊 Command Center</div>
             <div class="nav-item" data-role="admin manager employee" onclick="navigate('feed')">📢 Notice Board <span class="badge badge-danger" style="margin-left:auto; display:none;" id="notice-unread-badge">0</span></div>
             <div class="nav-item" data-role="admin" onclick="navigate('notices')">🖊️ Notice Management</div>
             <div class="nav-item" data-role="admin manager employee" onclick="navigate('orgchart')">🕸️ Organization Chart</div>
 
-            <!-- HR ADMIN MENUS -->
-            <div class="nav-label" data-role="admin">Core Operations</div>
-            <div class="nav-item active" data-role="admin" onclick="navigate('dashboard')">📊 Command Center</div>
+            <div class="nav-label" data-role="admin">People</div>
             <div class="nav-item" data-role="admin" onclick="navigate('directory')">👥 Org Directory (SSOT)</div>
             <div class="nav-item" data-role="admin" onclick="navigate('import')">📥 Import Employees</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('documents')">📁 Document Center</div>
+
+            <div class="nav-label" data-role="admin">Hire &amp; Onboard</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('recruitment')">🎯 Recruitment (ATS)</div>
             <div class="nav-item" data-role="admin" onclick="navigate('journeys')">🚀 Onboarding Journeys</div>
             <div class="nav-item" data-role="admin" onclick="navigate('probation')">⏳ Probation &amp; Confirmation</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('comp-planning')">💹 Compensation Planning</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('revisions')">📈 Salary Revisions</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('documents')">📁 Document Center</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('recruitment')">🎯 Recruitment (ATS)</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('letters')">📜 Letter Generator</div>
+
+            <div class="nav-label" data-role="admin">Time &amp; Attendance</div>
             <div class="nav-item" data-role="admin" onclick="navigate('attendance')">⏱️ Universal Gateway</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('attendance-register')">🗓️ Attendance Register</div>
             <div class="nav-item" data-role="admin" onclick="navigate('essl')">🖥️ eSSL Device Import</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('attendance-register')">🗓️ Attendance Register</div>
             <div class="nav-item" data-role="admin" onclick="navigate('att-requests')">📝 Attendance Requests <span class="badge badge-warning" style="margin-left:auto; display:none;" id="attreq-nav-badge">0</span></div>
-            <div class="nav-item" data-role="admin" onclick="navigate('timesheets')">⌛ Project Timesheets</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('shifts')">📅 Shift Scheduling</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('leave')">🌴 Leave Management</div>
             <div class="nav-item" id="nav-special-powers" data-role="admin" style="display: none;" onclick="navigate('special-powers')">🛡️ Special Powers</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('shifts')">📅 Shift Scheduling</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('timesheets')">⌛ Project Timesheets</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('leave')">🌴 Leave Management</div>
+
+            <div class="nav-label" data-role="admin">Payroll &amp; Compensation</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('payroll')">💰 Run Global Payroll</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('payslips')">📄 Payslip Vault</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('revisions')">📈 Salary Revisions</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('comp-planning')">💹 Compensation Planning</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('loans')">🏦 Loans & Advances</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('expenses')">🧾 Expense Claims</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('travel')">✈️ Travel Desk</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('ewa')">💸 Earned Wage Access</div>
+
+            <div class="nav-label" data-role="admin">Statutory &amp; Compliance</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('compliance')">🏛️ Statutory Config</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('form16')">🧮 Form 16 &amp; Tax</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('audit')">🔍 Audit Trail</div>
+
+            <div class="nav-label" data-role="admin">Talent &amp; Exit</div>
             <div class="nav-item" data-role="admin" onclick="navigate('performance')">📈 Performance & OKRs</div>
             <div class="nav-item" data-role="admin" onclick="navigate('recognition')">🏅 Recognition &amp; Feedback</div>
             <div class="nav-item" data-role="admin" onclick="navigate('succession')">🏆 9-Box Succession</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('engagement')">🌟 Engagement (eNPS)</div>
             <div class="nav-item" data-role="admin" onclick="navigate('offboarding')">👋 Exit & Offboarding</div>
 
-            <div class="nav-label" data-role="admin">Payroll & Admin</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('payroll')">💰 Run Global Payroll</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('loans')">🏦 Loans & Advances</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('travel')">✈️ Travel Desk</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('expenses')">🧾 Expense Claims</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('payslips')">📄 Payslip Vault</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('letters')">📜 Letter Generator</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('form16')">🧮 Form 16 &amp; Tax</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('compliance')">🏛️ Statutory Config</div>
+            <div class="nav-label" data-role="admin">Approvals</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('manager-inbox')">📥 Approval Inbox</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('workflows')">🔀 Approval Workflows</div>
+
+            <div class="nav-label" data-role="admin">Analytics &amp; Reports</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('analytics')">📊 People Analytics</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('reports')">📈 Report Center</div>
+
+            <div class="nav-label" data-role="admin">Workplace</div>
             <div class="nav-item" data-role="admin" onclick="navigate('assets')">💻 Asset Inventory</div>
             <div class="nav-item" data-role="admin" onclick="navigate('helpdesk')">🎫 IT/HR Helpdesk</div>
 
-            <div class="nav-item" data-role="admin" onclick="navigate('manager-inbox')">📥 Approval Inbox</div>
-
-            <div class="nav-label" data-role="admin">Analytics & Reports</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('analytics')">📊 People Analytics</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('reports')">📈 Report Center</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('workflows')">🔀 Approval Workflows</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('audit')">🔍 Audit Trail</div>
-
-            <div class="nav-label" data-role="admin">Intelligence Engine</div>
+            <div class="nav-label" data-role="admin">Intelligence</div>
             <div class="nav-item" data-role="admin" onclick="navigate('domebox')">🚀 DomeBox Sync</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('ewa')">💸 Earned Wage Access</div>
             <div class="nav-item" data-role="admin" onclick="navigate('intelligence')">🧠 AI Flight Predictor</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('engagement')">🌟 Engagement (eNPS)</div>
             <div class="nav-item" data-role="admin" onclick="navigate('whatsapp')">💬 WhatsApp Zero-App</div>
 
-            <div class="nav-label" data-role="admin">System Config</div>
+            <div class="nav-label" data-role="admin">System</div>
             <div class="nav-item" data-role="admin" onclick="navigate('settings')">⚙️ Multi-Vertical Arch</div>
 
             <!-- MANAGER MENUS -->
@@ -1359,12 +1371,54 @@
 
                 <div class="stat-strip" id="essl-stats"></div>
 
-                <!-- 1. Get the data off the device -->
+                <!-- 1a. Direct database connection -->
                 <div class="card">
-                    <h3 style="font-size:1rem; margin-bottom:6px;">1 · Getting the punches out of eSSL</h3>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:6px;">
+                        <h3 style="font-size:1rem;">🗄️ Import from the eSSL database</h3>
+                        <span id="essl-conn-badge"></span>
+                    </div>
                     <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:14px;">
-                        Three ways in, all landing in the same importer below. eTimeTrackLite keeps its data in MySQL,
-                        so the third is the one to automate once there is a server to run it on.</p>
+                        Pull punches straight out of the MySQL database eTimeTrackLite writes to — no file to
+                        carry across. A browser cannot open a database connection itself, so
+                        <code>tools/essl-sync/server.js</code> runs next to that database and hands the punches over.</p>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; align-items:end;">
+                        <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Connector address</label>
+                            <input type="text" id="essl-conn-url" placeholder="http://192.168.1.50:8710" onchange="setEsslConnector()"></div>
+                        <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Access token</label>
+                            <input type="password" id="essl-conn-token" placeholder="if the service requires one" onchange="setEsslConnector()"></div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn btn-outline" onclick="testEsslConnector()">Test connection</button>
+                        </div>
+                    </div>
+                    <div id="essl-conn-status" style="font-size:0.83rem; margin-top:12px;"></div>
+                    <div id="essl-conn-fetch" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+                        <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+                            <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">What to pull</label>
+                                <select id="essl-conn-mode" onchange="renderEsslConnectorMode()" style="width:auto;">
+                                    <option value="incremental">Everything new since the last pull</option>
+                                    <option value="range">A date range</option>
+                                    <option value="all">Everything in the database</option>
+                                </select></div>
+                            <div id="essl-conn-range" style="display:none; gap:10px;">
+                                <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">From</label>
+                                    <input type="date" id="essl-conn-from" style="width:auto;"></div>
+                                <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">To</label>
+                                    <input type="date" id="essl-conn-to" style="width:auto;"></div>
+                            </div>
+                            <button class="btn btn-primary" id="essl-conn-go" onclick="fetchEsslPunches()">↓ Fetch punches</button>
+                        </div>
+                        <p style="font-size:0.78rem; color:var(--text-muted); margin-top:10px;">
+                            Fetched punches land in the same preview as an uploaded file, and nothing is written until you
+                            import. Pulling a range you have already taken is safe — punches already in the log are skipped.</p>
+                    </div>
+                </div>
+
+                <!-- 1b. Files -->
+                <div class="card">
+                    <h3 style="font-size:1rem; margin-bottom:6px;">📄 Or import a file by hand</h3>
+                    <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:14px;">
+                        No connector, or a one-off correction: take the file off the device or out of the eSSL software
+                        and drop it in below. Both routes end in the same preview.</p>
                     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px;">
                         <div style="border:1px solid var(--border); border-radius:10px; padding:14px;">
                             <strong style="font-size:0.86rem;">📄 Device log file</strong>
@@ -1379,11 +1433,11 @@
                                 by version, so every column is remappable below.</p>
                         </div>
                         <div style="border:1px solid var(--border); border-radius:10px; padding:14px;">
-                            <strong style="font-size:0.86rem;">🗄️ MySQL sync</strong>
+                            <strong style="font-size:0.86rem;">🗄️ CSV from the database</strong>
                             <p style="font-size:0.77rem; color:var(--text-muted); margin-top:5px; line-height:1.5;">
-                                Read the eSSL <code>DeviceLogs</code> table directly on a schedule. Needs a server —
-                                <strong>MySQL Query</strong> above gives you the statement, and <code>tools/essl-sync</code>
-                                in the repo is a ready script.</p>
+                                Where the HRMS cannot reach the eSSL machine over the network,
+                                <code>tools/essl-sync/sync.js</code> writes the same punches to a CSV you can carry
+                                across. <strong>MySQL Query</strong> above gives you the statement it runs.</p>
                         </div>
                     </div>
                 </div>
@@ -15564,7 +15618,8 @@ var esslConfig = {
     // loss of pay. Punches closer together than this are treated as one.
     debounceSeconds: 120,
     ignoreBefore: '',        // never import punches before this date
-    lastImport: ''
+    lastImport: '',
+    connector: { url: '', token: '', verified: false, watermark: 0, pendingWatermark: 0, lastFetch: '' }
 };
 var esslBatches = [];
 var nextEsslBatchSeq = 1;
@@ -15971,6 +16026,7 @@ function commitEsslImport() {
         days: st.dayCount, absencesCleared: absencesCleared };
     esslBatches.unshift(batch);
     esslConfig.lastImport = batch.on;
+    if (/^eSSL database/.test(st.source || '')) advanceEsslWatermark();
     audit('eSSL import', batchId + ' · ' + written.length + ' punch(es) across ' + st.dayCount +
         ' employee-day(s) from ' + st.source, 'Attendance');
     esslStage = null;
@@ -15999,8 +16055,163 @@ function undoEsslBatch(id) {
     showToast(id + ' undone — ' + batch.count + ' punch(es) removed.', 'success');
 }
 
+// --- Direct database import ---------------------------------------------
+// The browser cannot speak to MySQL, so tools/essl-sync/server.js sits beside
+// the eSSL database and hands punches over HTTP. Rows fetched that way go into
+// exactly the same preview and commit path as an uploaded file — one importer,
+// two ways of feeding it.
+function esslConnBase() {
+    const url = String((esslConfig.connector && esslConfig.connector.url) || '').trim();
+    return url.replace(/\/+$/, '');
+}
+function setEsslConnector() {
+    esslConfig.connector = esslConfig.connector || {};
+    const conn = esslConfig.connector;
+    const u = document.getElementById('essl-conn-url');
+    const t = document.getElementById('essl-conn-token');
+    const url = u ? u.value.trim() : conn.url;
+    const token = t ? t.value : conn.token;
+    // Only a real change to the address or token invalidates the connection.
+    // A browser fires a deferred change on a field when it loses focus, so
+    // clicking from the token box into a date box would otherwise tear the
+    // fetch panel down in the middle of the job.
+    const changed = url !== conn.url || token !== conn.token;
+    conn.url = url;
+    conn.token = token;
+    if (changed) conn.verified = false;
+    renderEsslConnector();
+}
+function esslConnFetch(path, opts) {
+    const base = esslConnBase();
+    if (!base) return Promise.reject(new Error('Set the connector address first.'));
+    const headers = {};
+    const token = (esslConfig.connector && esslConfig.connector.token) || '';
+    if (token) headers['X-ESSL-Token'] = token;
+    if (opts && opts.body) headers['Content-Type'] = 'application/json';
+    return fetch(base + path, Object.assign({ headers: headers }, opts || {})).then(res =>
+        res.json().catch(() => ({ error: 'The connector did not answer with JSON — is that address right?' }))
+            .then(body => {
+                if (!res.ok) throw new Error((body && (body.hint || body.error)) || ('The connector answered ' + res.status + '.'));
+                return body;
+            })
+    ).catch(err => {
+        // A blocked or refused request reaches script as a bare TypeError, so
+        // say the useful thing rather than "Failed to fetch".
+        if (err instanceof TypeError) throw new Error('Could not reach ' + base +
+            '. Check the service is running, the address is right, and that this page is allowed to call it.');
+        throw err;
+    });
+}
+function esslConnStatus(html, colour) {
+    const el = document.getElementById('essl-conn-status');
+    if (el) el.innerHTML = '<span style="color:' + (colour || 'var(--secondary)') + '">' + html + '</span>';
+}
+function testEsslConnector() {
+    setEsslConnector();
+    if (!esslConnBase()) return esslConnStatus('Enter the address the connector service is listening on.', 'var(--danger)');
+    esslConnStatus('Contacting the connector…');
+    return esslConnFetch('/health').then(health => {
+        return esslConnFetch('/probe').then(probe => {
+            esslConfig.connector.verified = true;
+            esslConfig.connector.watermark = health.watermark;
+            const trouble = (probe.missing || []).length;
+            esslConnStatus(
+                '<strong style="color:var(--success)">Connected.</strong> ' +
+                esc(probe.database) + ' · table <strong>' + esc(probe.table || esc(health.table)) + '</strong> · ' +
+                (probe.rowCount === null ? '' : probe.rowCount.toLocaleString('en-IN') + ' row(s) · ') +
+                'last pulled up to log id ' + (health.watermark || 0) +
+                (health.tokenRequired ? ' · token accepted' : ' · <span style="color:var(--warning)">no token set on the service</span>') +
+                (trouble ? '<br><span style="color:var(--danger)">' + trouble + ' configured column(s) are not in that table: ' +
+                    probe.missing.map(m => esc(m.value)).join(', ') + ' — fix them in the connector\'s .env.</span>' : ''));
+            renderEsslConnector();
+            audit('eSSL connector tested', esslConnBase() + ' · ' + probe.database, 'Attendance');
+        });
+    }).catch(err => {
+        esslConfig.connector.verified = false;
+        esslConnStatus('<strong style="color:var(--danger)">' + esc(err.message) + '</strong>');
+        renderEsslConnector();
+    });
+}
+function renderEsslConnectorMode() {
+    const mode = (document.getElementById('essl-conn-mode') || {}).value;
+    const range = document.getElementById('essl-conn-range');
+    if (range) range.style.display = mode === 'range' ? 'flex' : 'none';
+}
+function renderEsslConnector() {
+    esslConfig.connector = esslConfig.connector || { url: '', token: '', verified: false };
+    const u = document.getElementById('essl-conn-url');
+    const t = document.getElementById('essl-conn-token');
+    if (u && document.activeElement !== u) u.value = esslConfig.connector.url || '';
+    if (t && document.activeElement !== t) t.value = esslConfig.connector.token || '';
+    const badge = document.getElementById('essl-conn-badge');
+    if (badge) {
+        badge.innerHTML = esslConfig.connector.verified
+            ? '<span class="badge badge-success">Connected</span>'
+            : (esslConfig.connector.url ? '<span class="badge badge-warning">Not tested</span>'
+                                        : '<span class="badge badge-info">Not set up</span>');
+    }
+    const fetchBox = document.getElementById('essl-conn-fetch');
+    if (fetchBox) fetchBox.style.display = esslConfig.connector.verified ? 'block' : 'none';
+    renderEsslConnectorMode();
+}
+function fetchEsslPunches() {
+    const mode = (document.getElementById('essl-conn-mode') || {}).value || 'incremental';
+    const btn = document.getElementById('essl-conn-go');
+    let query = '';
+    if (mode === 'range') {
+        const from = (document.getElementById('essl-conn-from') || {}).value;
+        const to = (document.getElementById('essl-conn-to') || {}).value;
+        if (!from || !to) return showToast('Pick both ends of the date range.', 'error');
+        if (to < from) return showToast('The range ends before it starts.', 'error');
+        query = '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+    } else if (mode === 'all') {
+        query = '?since=0';
+    }
+    if (btn) { btn.disabled = true; btn.innerText = 'Fetching…'; }
+    esslConnStatus('Fetching punches…');
+    return esslConnFetch('/punches' + query).then(res => {
+        if (btn) { btn.disabled = false; btn.innerText = '↓ Fetch punches'; }
+        if (!res.count) {
+            esslConnStatus(mode === 'incremental'
+                ? 'Nothing new since log id ' + (res.watermark || 0) + '.'
+                : 'That range holds no punches.', 'var(--warning)');
+            esslStage = null;
+            return renderEsslPreview();
+        }
+        // Shape the rows the way the file importer sees them, so one pipeline
+        // handles both routes.
+        const rows = [['UserId', 'LogDate', 'Direction', 'DeviceId']];
+        res.punches.forEach(p => rows.push([p.userId, p.punchAt, p.direction, p.deviceId]));
+        esslConnStatus('<strong style="color:var(--success)">' + res.count.toLocaleString('en-IN') + ' punch(es) fetched</strong>' +
+            ' (' + (res.mode === 'range' ? 'date range' : 'everything newer than log id ' + (res.watermark || 0)) + ')' +
+            (res.truncated ? ' — the batch was full, so fetch again after importing to get the rest.' : '') +
+            '. Nothing is written until you import below.');
+        esslConfig.connector.pendingWatermark = res.highestLogId || 0;
+        esslConfig.connector.lastFetch = new Date().toLocaleString('en-GB');
+        ingestEsslRows(rows, 'eSSL database · ' + (res.mode === 'range' ? 'date range' : 'incremental'));
+        const pv = document.getElementById('essl-preview');
+        if (pv) pv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }).catch(err => {
+        if (btn) { btn.disabled = false; btn.innerText = '↓ Fetch punches'; }
+        esslConnStatus('<strong style="color:var(--danger)">' + esc(err.message) + '</strong>');
+    });
+}
+// Once a database pull is safely imported, tell the connector how far the HRMS
+// has taken, so the next incremental fetch starts from there. It is deliberately
+// only moved after the import, never at fetch time — a fetch that is discarded
+// must be fetchable again.
+function advanceEsslWatermark() {
+    const conn = esslConfig.connector;
+    if (!conn || !conn.verified || !conn.pendingWatermark) return Promise.resolve();
+    const logId = conn.pendingWatermark;
+    conn.pendingWatermark = 0;
+    return esslConnFetch('/watermark', { method: 'POST', body: JSON.stringify({ logId: logId }) })
+        .then(res => { conn.watermark = res.watermark; })
+        .catch(() => { /* the punches are in; the watermark can be re-synced by fetching a range */ });
+}
+
 // --- Screens -------------------------------------------------------------
-function renderEsslView() { renderEsslStats(); renderEsslMapping(); renderEsslPreview(); renderEsslBatches(); }
+function renderEsslView() { renderEsslConnector(); renderEsslStats(); renderEsslMapping(); renderEsslPreview(); renderEsslBatches(); }
 // The shortcut on the attendance register only appears where the module is held.
 function renderEsslRegisterLink() {
     const el = document.getElementById('reg-essl-link');
@@ -16368,84 +16579,79 @@ const MODULE_CATALOG = [
     { key: 'audit', name: 'Audit Trail', icon: '🔍', cat: 'Foundation', needs: [],
       desc: 'Every execution, approval, master-data change and export, exportable to CSV.',
       views: ['audit'] },
-
-    { key: 'attendance', name: 'Time & Attendance', icon: '⏱️', cat: 'Time', needs: ['ess'],
-      desc: 'Punch log and clock in/out, the universal edge gateway, attendance register, geo-fencing, OD and punch requests, and the special powers console.',
-      views: ['attendance', 'attendance-register', 'att-requests', 'special-powers', 'ess-attendance', 'ess-att-requests', 'ess-calendar'] },
-    { key: 'essl', name: 'eSSL / Biometric Import', icon: '🖥️', cat: 'Time', needs: ['attendance'],
-      desc: 'Import punches from eSSL / eTimeTrackLite devices — raw device logs, spreadsheet exports or a MySQL sync — into the same punch log the policy engine and payroll read.',
-      views: ['essl'] },
-    { key: 'shifts', name: 'Shift Scheduling', icon: '📅', cat: 'Time', needs: ['attendance'],
-      desc: 'Shift roster and relay planning across the month.',
-      views: ['shifts'] },
-    { key: 'timesheets', name: 'Project Timesheets', icon: '⌛', cat: 'Time', needs: ['ess'],
-      desc: 'Timesheet submission, manager approval, billable value at project rates and utilisation.',
-      views: ['timesheets', 'ess-timesheets'] },
-    { key: 'leave', name: 'Leave Management', icon: '🌴', cat: 'Time', needs: ['ess'],
-      desc: 'Leave rule set, one shared rule engine, the disbursement ledger, accrual runs, year-end close and encashment.',
-      views: ['leave', 'ess-leaves'] },
-
-    { key: 'payroll', name: 'Payroll Engine', icon: '💰', cat: 'Payroll', needs: ['core-hr'],
-      desc: 'Six-stage payroll run, payslip vault, statutory payslips and the bank, register and GL outputs.',
-      views: ['payroll', 'payslips', 'ess-payslips'] },
-    { key: 'statutory', name: 'Statutory & Tax', icon: '🏛️', cat: 'Payroll', needs: ['payroll'],
-      desc: 'PF, ESIC, professional tax and TDS configuration, Form 16 projections, regime comparison and employee tax declarations.',
-      views: ['compliance', 'form16', 'ess-tax'] },
-    { key: 'loans', name: 'Loans & Advances', icon: '🏦', cat: 'Payroll', needs: ['payroll'],
-      desc: 'Amortised loan schedules with recovery posted on payroll execution and reversed on reopen.',
-      views: ['loans'] },
-    { key: 'expenses', name: 'Expense Claims', icon: '🧾', cat: 'Payroll', needs: ['ess'],
-      desc: 'Claim workflow to reimbursement with a per-category expense policy and violation flags.',
-      views: ['expenses', 'ess-expenses'] },
-    { key: 'travel', name: 'Travel Desk', icon: '✈️', cat: 'Payroll', needs: ['ess'],
-      desc: 'Corporate travel requests routed through the admin and travel desk chain.',
-      views: ['travel', 'ess-travel'] },
-    { key: 'ewa', name: 'Earned Wage Access', icon: '💸', cat: 'Payroll', needs: ['payroll'],
-      desc: 'On-demand access to wages already earned in the running period.',
-      views: ['ewa'] },
-
-    { key: 'recruitment', name: 'Recruitment (ATS)', icon: '🎯', cat: 'Talent', needs: ['core-hr'],
+    { key: 'recruitment', name: 'Recruitment (ATS)', icon: '🎯', cat: 'Hire & Onboard', needs: ['core-hr'],
       desc: 'Five-stage hiring pipeline with screening scores, interview scheduling, feedback and ATS-to-onboarding handover.',
       views: ['recruitment'] },
-    { key: 'performance', name: 'Performance & Talent', icon: '📈', cat: 'Talent', needs: ['ess'],
-      desc: 'Cascading goals, the review cycle, calibration, the 9-box grid, continuous feedback, 1-on-1s and peer recognition.',
-      views: ['performance', 'recognition', 'succession', 'ess-performance'] },
-    { key: 'compensation', name: 'Compensation Planning', icon: '💹', cat: 'Talent', needs: ['core-hr'],
-      desc: 'Increment cycles against a budget, salary grades and compa-ratio, and effective-dated revisions that generate arrears.',
-      views: ['comp-planning', 'revisions'] },
-    { key: 'learning', name: 'Learning & Development', icon: '📚', cat: 'Talent', needs: ['ess'],
-      desc: 'Course catalogue and learning progress for employees.',
-      views: ['ess-learning'] },
-    { key: 'engagement', name: 'Engagement & Surveys', icon: '🌟', cat: 'Talent', needs: ['ess'],
-      desc: 'eNPS, pulse surveys and the engagement dashboard.',
-      views: ['engagement', 'ess-engagement'] },
-    { key: 'offboarding', name: 'Exit & Offboarding', icon: '👋', cat: 'Talent', needs: ['core-hr'],
-      desc: 'Department-wise exit clearance blocking full & final, gratuity, encashment, loan settlement and asset recovery.',
-      views: ['offboarding'] },
-
-    { key: 'documents', name: 'Documents & e-Sign', icon: '📁', cat: 'Operations', needs: [],
+    { key: 'documents', name: 'Documents & e-Sign', icon: '📁', cat: 'Hire & Onboard', needs: [],
       desc: 'Document centre with e-signature routing.',
       views: ['documents'] },
-    { key: 'letters', name: 'Letter Generator', icon: '📜', cat: 'Operations', needs: ['core-hr'],
+    { key: 'letters', name: 'Letter Generator', icon: '📜', cat: 'Hire & Onboard', needs: ['core-hr'],
       desc: 'HR letters including the appointment letter behind its HR unlock.',
       views: ['letters'] },
-    { key: 'assets', name: 'Asset Inventory', icon: '💻', cat: 'Operations', needs: [],
+    { key: 'attendance', name: 'Time & Attendance', icon: '⏱️', cat: 'Time & Attendance', needs: ['ess'],
+      desc: 'Punch log and clock in/out, the universal edge gateway, attendance register, geo-fencing, OD and punch requests, and the special powers console.',
+      views: ['attendance', 'attendance-register', 'att-requests', 'special-powers', 'ess-attendance', 'ess-att-requests', 'ess-calendar'] },
+    { key: 'essl', name: 'eSSL / Biometric Import', icon: '🖥️', cat: 'Time & Attendance', needs: ['attendance'],
+      desc: 'Import punches from eSSL / eTimeTrackLite devices — raw device logs, spreadsheet exports or a MySQL sync — into the same punch log the policy engine and payroll read.',
+      views: ['essl'] },
+    { key: 'shifts', name: 'Shift Scheduling', icon: '📅', cat: 'Time & Attendance', needs: ['attendance'],
+      desc: 'Shift roster and relay planning across the month.',
+      views: ['shifts'] },
+    { key: 'timesheets', name: 'Project Timesheets', icon: '⌛', cat: 'Time & Attendance', needs: ['ess'],
+      desc: 'Timesheet submission, manager approval, billable value at project rates and utilisation.',
+      views: ['timesheets', 'ess-timesheets'] },
+    { key: 'leave', name: 'Leave Management', icon: '🌴', cat: 'Time & Attendance', needs: ['ess'],
+      desc: 'Leave rule set, one shared rule engine, the disbursement ledger, accrual runs, year-end close and encashment.',
+      views: ['leave', 'ess-leaves'] },
+    { key: 'payroll', name: 'Payroll Engine', icon: '💰', cat: 'Payroll & Compensation', needs: ['core-hr'],
+      desc: 'Six-stage payroll run, payslip vault, statutory payslips and the bank, register and GL outputs.',
+      views: ['payroll', 'payslips', 'ess-payslips'] },
+    { key: 'statutory', name: 'Statutory & Tax', icon: '🏛️', cat: 'Payroll & Compensation', needs: ['payroll'],
+      desc: 'PF, ESIC, professional tax and TDS configuration, Form 16 projections, regime comparison and employee tax declarations.',
+      views: ['compliance', 'form16', 'ess-tax'] },
+    { key: 'compensation', name: 'Compensation Planning', icon: '💹', cat: 'Payroll & Compensation', needs: ['core-hr'],
+      desc: 'Increment cycles against a budget, salary grades and compa-ratio, and effective-dated revisions that generate arrears.',
+      views: ['comp-planning', 'revisions'] },
+    { key: 'loans', name: 'Loans & Advances', icon: '🏦', cat: 'Payroll & Compensation', needs: ['payroll'],
+      desc: 'Amortised loan schedules with recovery posted on payroll execution and reversed on reopen.',
+      views: ['loans'] },
+    { key: 'expenses', name: 'Expense Claims', icon: '🧾', cat: 'Payroll & Compensation', needs: ['ess'],
+      desc: 'Claim workflow to reimbursement with a per-category expense policy and violation flags.',
+      views: ['expenses', 'ess-expenses'] },
+    { key: 'travel', name: 'Travel Desk', icon: '✈️', cat: 'Payroll & Compensation', needs: ['ess'],
+      desc: 'Corporate travel requests routed through the admin and travel desk chain.',
+      views: ['travel', 'ess-travel'] },
+    { key: 'ewa', name: 'Earned Wage Access', icon: '💸', cat: 'Payroll & Compensation', needs: ['payroll'],
+      desc: 'On-demand access to wages already earned in the running period.',
+      views: ['ewa'] },
+    { key: 'performance', name: 'Performance & Talent', icon: '📈', cat: 'Talent & Exit', needs: ['ess'],
+      desc: 'Cascading goals, the review cycle, calibration, the 9-box grid, continuous feedback, 1-on-1s and peer recognition.',
+      views: ['performance', 'recognition', 'succession', 'ess-performance'] },
+    { key: 'learning', name: 'Learning & Development', icon: '📚', cat: 'Talent & Exit', needs: ['ess'],
+      desc: 'Course catalogue and learning progress for employees.',
+      views: ['ess-learning'] },
+    { key: 'engagement', name: 'Engagement & Surveys', icon: '🌟', cat: 'Talent & Exit', needs: ['ess'],
+      desc: 'eNPS, pulse surveys and the engagement dashboard.',
+      views: ['engagement', 'ess-engagement'] },
+    { key: 'offboarding', name: 'Exit & Offboarding', icon: '👋', cat: 'Talent & Exit', needs: ['core-hr'],
+      desc: 'Department-wise exit clearance blocking full & final, gratuity, encashment, loan settlement and asset recovery.',
+      views: ['offboarding'] },
+    { key: 'assets', name: 'Asset Inventory', icon: '💻', cat: 'Workplace', needs: [],
       desc: 'Assign and return company assets with custody history, flagged at exit.',
       views: ['assets'] },
-    { key: 'helpdesk', name: 'IT / HR Helpdesk', icon: '🎫', cat: 'Operations', needs: ['ess'],
+    { key: 'helpdesk', name: 'IT / HR Helpdesk', icon: '🎫', cat: 'Workplace', needs: ['ess'],
       desc: 'Ticketing with categories mapped to teams, SLA multipliers and escalation.',
       views: ['helpdesk', 'ess-helpdesk'] },
-    { key: 'benefits', name: 'Benefits & GMC', icon: '🏥', cat: 'Operations', needs: ['ess'],
+    { key: 'benefits', name: 'Benefits & GMC', icon: '🏥', cat: 'Workplace', needs: ['ess'],
       desc: 'Group medical cover and benefit enrolment visible to the employee.',
       views: ['ess-benefits'] },
-
-    { key: 'analytics', name: 'People Analytics', icon: '📊', cat: 'Insight', needs: [],
+    { key: 'analytics', name: 'People Analytics', icon: '📊', cat: 'Analytics & Insight', needs: [],
       desc: 'Eight charts on headcount, cost, tenure, salary bands, leave, exits and a transparent attrition-risk score.',
       views: ['analytics'] },
-    { key: 'reports', name: 'Report Center', icon: '📈', cat: 'Insight', needs: [],
+    { key: 'reports', name: 'Report Center', icon: '📈', cat: 'Analytics & Insight', needs: [],
       desc: 'Attendance, wage and statutory registers plus the factory returns, each previewable, printable and downloadable.',
       views: ['reports'] },
-    { key: 'intelligence', name: 'AI & Integrations', icon: '🧠', cat: 'Insight', needs: [],
+    { key: 'intelligence', name: 'AI & Integrations', icon: '🧠', cat: 'Analytics & Insight', needs: [],
       desc: 'DomeBox task sync, the flight-risk predictor and the WhatsApp zero-app assistant.',
       views: ['domebox', 'intelligence', 'whatsapp'] }
 ];

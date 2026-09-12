@@ -582,14 +582,45 @@ attendance" that could disagree with the payslip.
 
 ### Three ways in
 
+Two routes, and they end in the same place:
+
 | Route | What it is |
 |---|---|
-| **Device log file** | The raw tab-separated `.dat` / `.txt` pulled off the device — user ID, timestamp, state. No header row. |
-| **eTimeTrackLite export** | Reports → Device Logs / Attendance Register, saved as `.xls`, `.xlsx` or CSV — including the grouped **Log Records (Employee Wise)** report. |
-| **MySQL sync** | Read the eSSL database directly on a schedule — see `tools/essl-sync` below. |
+| **Straight from the database** | The screen pulls punches out of the eSSL MySQL itself, through a small connector service. No file changes hands. |
+| **A file, by hand** | The raw `.dat` / `.txt` off the device, or an eTimeTrackLite export as `.xls`, `.xlsx` or CSV — including the grouped **Log Records (Employee Wise)** report. |
 
-All three land in the same importer, and nothing is written until you have seen
-the preview.
+Both feed the same preview, the same de-duplication and the same commit, so
+nothing is written until you have looked at it — and a punch imported one way is
+recognised if it arrives again the other way.
+
+### Importing straight from the database
+
+A browser cannot open a MySQL connection, so `tools/essl-sync/server.js` runs
+beside the eSSL database and hands punches over HTTP. Start it there, put its
+address and token into **eSSL Device Import → Import from the eSSL database**,
+and **Test connection** reports the database, the table, the row count and how
+far the HRMS has already taken. Then pull either:
+
+- **everything new since the last pull** — the connector keeps a watermark, so
+  this is the day-to-day action and never fetches the same punch twice;
+- **a date range** — ignores the watermark, for re-taking a period after a
+  correction. Safe, because punches already in the log are skipped;
+- **everything in the database** — for the first load.
+
+The watermark only moves **after** an import is committed, never at fetch time,
+so a pull you discard can be pulled again.
+
+```
+cd tools/essl-sync
+cp .env.example .env      # database details, then a service port and token
+npm install
+node server.js
+```
+
+Set `ESSL_SERVICE_TOKEN`: without it, anyone who can reach the port can read
+your punch data. The service is read-only — every query is a `SELECT`, and the
+database user needs nothing more than `SELECT`. Keep it on the LAN; it holds
+database credentials and is not built to face the internet.
 
 ### Nothing is hard-coded to one layout
 
@@ -644,6 +675,8 @@ those days from whatever is left.
 sidebar. Both are open to any HR Admin account whose company holds the `essl`
 module — no provider account needed. The shortcut on the register hides itself
 where the module is not licensed.
+
+#### The file route
 
 #### The `.xls` eSSL actually exports is read directly
 
@@ -700,10 +733,10 @@ real — but the preview **lists them by employee and date** rather than letting
 them become a quiet short day in payroll. Fix them on the Attendance Register,
 or let the employee raise a Forgot Punch request.
 
-### `tools/essl-sync` — reading the eSSL MySQL directly
+### `tools/essl-sync` — CSV, where the HRMS cannot reach the database
 
-eTimeTrackLite keeps its data in MySQL, so the import can be automated. The
-script pulls new rows and writes the CSV the importer reads:
+Where the machine running the HRMS cannot reach the eSSL machine over the
+network, the same tool writes the punches to a CSV to carry across by hand:
 
 ```
 cd tools/essl-sync
@@ -727,10 +760,8 @@ timestamps year-first so the importer never has to guess the date format.
 
 Give it a **read-only MySQL user**; it only ever issues `SELECT`.
 
-It is deliberately a file feed rather than a push: until the HRMS has a backend
-there is nothing to POST to, and a CSV on disk is something you can open and
-check before it reaches payroll. When the backend exists, swap the one
-`writeCsv` call for an HTTP call and nothing else in the script changes.
+`sync.js` and `server.js` share `lib.js`, so the query, the schema settings and
+the watermark behave identically whichever route you use.
 
 ## Attendance requests and the special powers console
 
@@ -1000,6 +1031,18 @@ alone.
   ATS, and audit registers.
 - **Config** — multi-vertical architecture switch and a global CTC structure editor
   that drives onboarding previews and payroll runs.
+
+## How the menu is arranged
+
+Both the sidebar and the module catalog follow the employee lifecycle, and they
+use the same grouping — so a licence maps onto what actually appears in the menu:
+
+**Company → People → Hire &amp; Onboard → Time &amp; Attendance → Payroll &amp;
+Compensation → Statutory &amp; Compliance → Talent &amp; Exit → Approvals →
+Analytics &amp; Reports → Workplace → Intelligence → System**
+
+A heading with nothing visible underneath hides itself, so a company licensed
+for a handful of modules gets a short menu rather than a page of empty sections.
 
 ## Configuring the CTC structure
 
