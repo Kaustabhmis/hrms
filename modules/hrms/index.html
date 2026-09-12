@@ -468,6 +468,28 @@
         .access-banner.warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
         .access-banner.danger { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
 
+        /* --- SETTINGS HUB --- */
+        .settings-shell { display: flex; gap: 22px; align-items: flex-start; }
+        .settings-rail { flex: 0 0 218px; display: flex; flex-direction: column; gap: 3px; position: sticky; top: 84px; }
+        .settings-tab { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 13px;
+            border: 1px solid transparent; border-radius: 8px; background: none; cursor: pointer;
+            font-size: 0.86rem; font-weight: 600; color: var(--secondary); transition: 0.15s; }
+        .settings-tab:hover { background: var(--bg-main); color: var(--text-dark); }
+        .settings-tab.active { background: #eff6ff; border-color: #bfdbfe; color: var(--primary); }
+        .settings-tab-icon { font-size: 1rem; }
+        .settings-body { flex: 1; min-width: 0; }
+        @media (max-width: 900px) {
+            .settings-shell { flex-direction: column; }
+            .settings-rail { flex: none; width: 100%; flex-direction: row; overflow-x: auto; position: static; padding-bottom: 4px; }
+            .settings-tab { width: auto; white-space: nowrap; }
+        }
+
+        /* --- COLLAPSIBLE SIDEBAR GROUPS --- */
+        .nav-label { cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
+        .nav-label:hover { color: #94a3b8; }
+        .nav-label .nav-caret { font-size: 0.6rem; opacity: 0.6; transition: transform 0.15s; }
+        .nav-label.collapsed .nav-caret { transform: rotate(-90deg); }
+
     </style>
 </head>
 <body>
@@ -567,7 +589,6 @@
 
             <div class="nav-label" data-role="admin">Approvals</div>
             <div class="nav-item" data-role="admin" onclick="navigate('manager-inbox')">📥 Approval Inbox</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('workflows')">🔀 Approval Workflows</div>
 
             <div class="nav-label" data-role="admin">Analytics &amp; Reports</div>
             <div class="nav-item" data-role="admin" onclick="navigate('analytics')">📊 People Analytics</div>
@@ -582,8 +603,8 @@
             <div class="nav-item" data-role="admin" onclick="navigate('intelligence')">🧠 AI Flight Predictor</div>
             <div class="nav-item" data-role="admin" onclick="navigate('whatsapp')">💬 WhatsApp Zero-App</div>
 
-            <div class="nav-label" data-role="admin">System</div>
-            <div class="nav-item" data-role="admin" onclick="navigate('settings')">⚙️ Multi-Vertical Arch</div>
+            <div class="nav-label" data-role="admin manager employee">System</div>
+            <div class="nav-item" data-role="admin" onclick="navigate('settings')">⚙️ Settings</div>
 
             <!-- MANAGER MENUS -->
             <div class="nav-label" data-role="manager" style="display: none;">Manager Workspace</div>
@@ -1196,12 +1217,12 @@
 
                 <div class="stat-strip" id="attendance-snapshot-gateway"></div>
 
-                <div class="card">
+                <div class="card" data-setting="attendance" data-setting-title="Attendance policy">
                     <div class="card-header"><h3>Attendance Policy</h3><button class="btn btn-outline" style="padding:4px 10px; font-size:0.75rem;" onclick="editAttendancePolicy()">Edit Policy</button></div>
                     <div class="stat-strip" id="attendance-policy-strip" style="margin-bottom:0;"></div>
                 </div>
 
-                <div class="card">
+                <div class="card" data-setting="attendance" data-setting-title="Geo-fencing">
                     <div class="card-header">
                         <h3>Geo-fencing <span id="geo-mode-badge" class="badge badge-neutral">Off</span></h3>
                         <div style="display:flex; gap:8px;" data-role="admin">
@@ -1372,7 +1393,7 @@
                 <div class="stat-strip" id="essl-stats"></div>
 
                 <!-- 1a. Direct database connection -->
-                <div class="card">
+                <div class="card" data-setting="devices" data-setting-title="eSSL database connection">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:6px;">
                         <h3 style="font-size:1rem;">🗄️ Import from the eSSL database</h3>
                         <span id="essl-conn-badge"></span>
@@ -1391,7 +1412,13 @@
                         </div>
                     </div>
                     <div id="essl-conn-status" style="font-size:0.83rem; margin-top:12px;"></div>
-                    <div id="essl-conn-fetch" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+                </div>
+
+                <!-- 1a-ii. Pulling, which stays with the import -->
+                <div class="card" id="essl-fetch-card">
+                    <h3 style="font-size:1rem; margin-bottom:6px;">🗄️ Pull from the eSSL database</h3>
+                    <div id="essl-conn-hint" style="font-size:0.84rem; color:var(--text-muted);"></div>
+                    <div id="essl-conn-fetch" style="display:none;">
                         <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
                             <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">What to pull</label>
                                 <select id="essl-conn-mode" onchange="renderEsslConnectorMode()" style="width:auto;">
@@ -1443,10 +1470,10 @@
                 </div>
 
                 <!-- 2. Map device IDs to employees -->
-                <div class="card">
+                <div class="card" data-setting="devices" data-setting-title="Device ID mapping">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
                         <div>
-                            <h3 style="font-size:1rem;">2 · Device ID → employee</h3>
+                            <h3 style="font-size:1rem;">Device ID → employee</h3>
                             <p style="font-size:0.84rem; color:var(--text-muted);">An eSSL device knows people by their enrolment number. Map each to an employee once and every future import resolves on its own.</p>
                         </div>
                         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -1464,7 +1491,7 @@
 
                 <!-- 3. Import -->
                 <div class="card">
-                    <h3 style="font-size:1rem; margin-bottom:6px;">3 · Import a file</h3>
+                    <h3 style="font-size:1rem; margin-bottom:6px;">📥 Import a file</h3>
                     <div class="drop-zone" id="essl-drop"
                          onclick="document.getElementById('essl-file').click()"
                          ondragover="esslDragOver(event)" ondragleave="esslDragLeave()" ondrop="esslDrop(event)">
@@ -1516,7 +1543,7 @@
 
                 <div class="stat-strip" id="attreq-stats"></div>
 
-                <div class="card">
+                <div class="card" data-setting="attendance" data-setting-title="Attendance request rules">
                     <div class="card-header"><h3>Request Rule Set</h3><span style="font-size:0.78rem; color:var(--text-muted)">How many, from where, and what approval does</span></div>
                     <div class="table-container">
                         <table>
@@ -1638,7 +1665,7 @@
 
                 <div class="stat-strip" id="leave-stats"></div>
 
-                <div class="card">
+                <div class="card" data-setting="leave" data-setting-title="Leave rule set">
                     <div class="card-header">
                         <h3>Leave Rule Set</h3>
                         <span style="font-size:0.78rem; color:var(--text-muted)">Every application, accrual and payout is decided from this table</span>
@@ -1980,7 +2007,7 @@
                 <h2>Global Expense Claims</h2>
                 <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;">Approve claims, then queue them for payroll. Queued claims are reimbursed with salary as a non-taxable payment.</p>
                 <div class="stat-strip" id="expense-stats"></div>
-                <div class="card">
+                <div class="card" data-setting="expenses" data-setting-title="Expense policy">
                     <div class="card-header"><h3>Expense Policy</h3><button class="btn btn-outline" style="padding:4px 10px; font-size:0.75rem;" onclick="editExpensePolicy()">Edit Caps</button></div>
                     <div class="table-container">
                         <table>
@@ -2415,7 +2442,7 @@
                     </div>
                     <button class="btn btn-outline" onclick="exportWorkflowRegister()">⬇️ Request Register (CSV)</button>
                 </div>
-                <div class="card">
+                <div class="card" data-setting="approvals" data-setting-title="Approval chains">
                     <div class="card-header"><h3>Chain Configuration</h3></div>
                     <div class="table-container">
                         <table>
@@ -2424,7 +2451,7 @@
                         </table>
                     </div>
                 </div>
-                <div class="card">
+                <div class="card" data-setting="approvals" data-setting-title="Request register">
                     <div class="card-header"><h3>Request Register</h3><span id="workflow-register-summary" style="font-size:0.78rem; color:var(--text-muted)"></span></div>
                     <div class="table-container">
                         <table>
@@ -2659,7 +2686,18 @@
 
             <!-- 12. SYSTEM SETTINGS -->
             <section id="view-settings" class="view-section">
-                <div class="card" style="max-width: 600px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:15px; flex-wrap:wrap;">
+                    <div>
+                        <h2>Settings</h2>
+                        <p style="font-size: 0.9rem; color: var(--text-muted);">Every rule the system runs on, in one place. Each panel is the same one the screen it governs used to carry, so what you set here is what is enforced there.</p>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn btn-outline" onclick="saveState()">💾 Save settings</button>
+                    </div>
+                </div>
+
+                <div id="settings-carried" style="display:none;">
+<div class="card" data-setting="org" data-setting-title="Vertical architecture" style="max-width: 600px;">
                     <h3>Multi-Vertical Architecture Config</h3>
                     <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;">The OS dynamically adapts its algorithms based on your operating mode.</p>
 
@@ -2685,8 +2723,7 @@
 
                     <button class="btn btn-primary" style="margin-top:20px;" onclick="showToast('System Architecture Updated & Deployed!', 'success')">Deploy Architecture Changes</button>
                 </div>
-
-                <div class="card">
+<div class="card" data-setting="payroll" data-setting-title="Global CTC structure">
                     <h3>Global CTC Structure Setup</h3>
                     <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;">Define salary components once. Changes here will apply dynamically to all employees, previews, and global payroll runs.</p>
 
@@ -2711,6 +2748,14 @@
                             </div>
                             <button class="btn btn-outline" style="font-size: 0.8rem;" onclick="addCTCComponent('deductions')">+ Add Deduction</button>
                         </div>
+                    </div>
+                </div>
+                </div>
+                <div class="settings-shell">
+                    <nav class="settings-rail" id="settings-rail"></nav>
+                    <div class="settings-body">
+                        <div id="settings-heading"></div>
+                        <div id="settings-panels"></div>
                     </div>
                 </div>
             </section>
@@ -6791,6 +6836,7 @@ function navigate(viewId) {
     if (typeof event !== 'undefined' && event && event.currentTarget) event.currentTarget.classList.add('active');
 
     setTopbarTitle(viewId);
+    if (typeof revealNavGroupFor === 'function') revealNavGroupFor(viewId);
     runViewHooks(viewId);
 }
 
@@ -6798,13 +6844,13 @@ const VIEW_TITLES = {
         'feed': 'Notice Board', 'notices': 'Notice Management', 'orgchart': 'Organization Chart',
         'dashboard': 'Command Center', 'directory': 'Organization Directory', 'documents': 'Document Center & e-Sign', 'recruitment': 'Recruitment & ATS',
         'attendance': 'Universal Edge Gateway', 'attendance-register': 'Attendance Register',
-        'att-requests': 'Attendance Requests', 'essl': 'eSSL Biometric Import',
+        'att-requests': 'Attendance Requests', 'essl': 'eSSL Biometric Import', 'settings': 'Settings',
         'special-powers': 'Special Attendance Powers', 'ess-att-requests': 'OD & Punch Requests',
         'leave': 'Leave & Capacity', 'performance': 'Performance & Appraisals', 'succession': '9-Box Succession',
         'offboarding': 'Exit & Offboarding', 'shifts': 'Shift Scheduling', 'timesheets': 'Project Timesheets',
         'payroll': 'Global Payroll Engine', 'loans': 'Loans & Advances', 'travel': 'Corporate Travel Desk', 'payslips': 'Payslip Vault', 'letters': 'HR Document Generator',
         'compliance': 'Statutory Compliance', 'reports': 'HR & Payroll Report Center', 'domebox': 'DomeBox Ecosystem', 'ewa': 'Earned Wage Access',
-        'intelligence': 'Talent Intelligence', 'engagement': 'Engagement & Surveys', 'whatsapp': 'Zero-App HR', 'settings': 'System Architecture',
+        'intelligence': 'Talent Intelligence', 'engagement': 'Engagement & Surveys', 'whatsapp': 'Zero-App HR',
         'assets': 'Asset Inventory', 'expenses': 'Global Expense Claims', 'helpdesk': 'IT & HR Helpdesk',
         'revisions': 'Salary Revisions & Arrears', 'audit': 'System Audit Trail',
         'workflows': 'Approval Workflows', 'ess-requests': 'My Requests',
@@ -6836,7 +6882,7 @@ function applyRoleVisibility() {
             : (roles.indexOf(currentRole) !== -1 || currentRole === 'super');
         if (!allowed) { el.style.display = 'none'; return; }
         // Restore the display each element type expects when it is allowed.
-        if (el.classList.contains('nav-label')) el.style.display = 'block';
+        if (el.classList.contains('nav-label')) el.style.display = 'flex';
         else if (el.classList.contains('nav-item')) el.style.display = 'flex';
         else el.style.display = '';
     });
@@ -6856,6 +6902,7 @@ function navigateProgrammatic(viewId) {
     const view = document.getElementById(`view-${viewId}`);
     if (view) view.classList.add('active');
     setTopbarTitle(viewId);
+    if (typeof revealNavGroupFor === 'function') revealNavGroupFor(viewId);
     // Keep the sidebar highlight in sync when navigating without a click event.
     document.querySelectorAll('.nav-item').forEach(el => {
         el.classList.toggle('active', (el.getAttribute('onclick') || '') === `navigate('${viewId}')`);
@@ -6877,6 +6924,7 @@ function runViewHooks(viewId) {
     if (viewId === 'attendance-register') { renderManualAttendance(); renderEsslRegisterLink(); }
     if (viewId === 'att-requests') renderAttendanceRequests();
     if (viewId === 'essl') renderEsslView();
+    if (viewId === 'settings') renderSettingsView();
     if (viewId === 'special-powers') renderSpecialPowers();
     if (viewId === 'ess-att-requests') renderESSAttendanceRequests();
     if (viewId === 'helpdesk') renderAdminHelpdesk();
@@ -15323,6 +15371,258 @@ function sendWAMessage() {
     }, 600);
 }
 
+// --- Collapsible sidebar groups -----------------------------------------
+// The menu is long because the product is wide. Rather than hiding screens,
+// each group folds away, and the fold state is remembered per browser. The
+// group holding the screen you are on always opens itself, so navigating from
+// code never leaves you looking at a collapsed menu.
+const NAV_COLLAPSE_KEY = 'biscs-nav-collapsed-v1';
+var navCollapsed = {};
+function loadNavCollapsed() {
+    try { navCollapsed = JSON.parse(localStorage.getItem(NAV_COLLAPSE_KEY) || '{}') || {}; }
+    catch (err) { navCollapsed = {}; }
+}
+function saveNavCollapsed() {
+    try { localStorage.setItem(NAV_COLLAPSE_KEY, JSON.stringify(navCollapsed)); } catch (err) { /* storage off */ }
+}
+function navGroupKey(label) { return (label.textContent || '').trim().toLowerCase().replace(/\s+/g, '-'); }
+// Turn every heading into a toggle once.
+function initNavGroups() {
+    loadNavCollapsed();
+    document.querySelectorAll('#sidebar-nav .nav-label').forEach(label => {
+        if (label.dataset.group) return;
+        label.dataset.group = navGroupKey(label);
+        const caret = document.createElement('span');
+        caret.className = 'nav-caret';
+        caret.textContent = '▼';
+        label.appendChild(caret);
+        label.addEventListener('click', () => toggleNavGroup(label.dataset.group));
+    });
+    applyNavCollapsed();
+}
+function toggleNavGroup(key) {
+    navCollapsed[key] = !navCollapsed[key];
+    saveNavCollapsed();
+    applyNavCollapsed();
+}
+// Folding hides the items under a heading without disturbing the role and
+// module gating that decided they could be there in the first place.
+function applyNavCollapsed() {
+    const nav = document.getElementById('sidebar-nav');
+    if (!nav) return;
+    const kids = Array.from(nav.children);
+    let current = null;
+    kids.forEach(el => {
+        if (el.classList.contains('nav-label')) {
+            current = el.dataset.group || navGroupKey(el);
+            el.classList.toggle('collapsed', !!navCollapsed[current]);
+            return;
+        }
+        if (!el.classList.contains('nav-item')) return;
+        if (el.dataset.gatedOut === '1') return;          // hidden by role or licence
+        el.style.display = navCollapsed[current] ? 'none' : 'flex';
+    });
+}
+// Whichever group holds the open screen is opened, so a jump from code or from
+// a link inside a screen never lands behind a fold.
+function revealNavGroupFor(viewId) {
+    const nav = document.getElementById('sidebar-nav');
+    if (!nav) return;
+    const kids = Array.from(nav.children);
+    let current = null;
+    for (const el of kids) {
+        if (el.classList.contains('nav-label')) { current = el.dataset.group || navGroupKey(el); continue; }
+        if (el.classList.contains('nav-item') && el.dataset.view === viewId && current && navCollapsed[current]) {
+            navCollapsed[current] = false;
+            saveNavCollapsed();
+            applyNavCollapsed();
+            return;
+        }
+    }
+}
+
+// ==========================================================================
+// SETTINGS
+// Every rule the system runs on, gathered behind one menu entry. The panels are
+// not copies: the real config cards are moved out of the screens they used to
+// sit on and re-parented here at boot, so their ids, their inline handlers and
+// the render functions that fill them all keep working untouched. What you set
+// here is the same object the screen it governs enforces — there is no second
+// copy of a policy to drift.
+// ==========================================================================
+const SETTINGS_SECTIONS = [
+    { key: 'org',        name: 'Organisation',    icon: '\u{1F3E2}', module: 'core-hr',
+      blurb: 'Who the establishment is, and the shape of the business the rest of the system assumes.' },
+    { key: 'payroll',    name: 'Payroll & CTC',   icon: '\u{1F4B0}', module: 'payroll',
+      blurb: 'The salary structure every onboarding preview and payroll run is built from.' },
+    { key: 'attendance', name: 'Attendance',      icon: '\u{23F1}️', module: 'attendance',
+      blurb: 'Shift timing, grace, overtime, geo-fencing, and the rules attendance requests are judged by.' },
+    { key: 'leave',      name: 'Leave',           icon: '\u{1F334}', module: 'leave',
+      blurb: 'Entitlement, accrual, eligibility and year-end handling per leave type.' },
+    { key: 'expenses',   name: 'Expenses',        icon: '\u{1F9FE}', module: 'expenses',
+      blurb: 'Per-category caps and what the approver is warned about.' },
+    { key: 'approvals',  name: 'Approvals',       icon: '\u{1F500}', module: 'workflows',
+      blurb: 'Who signs off what, the SLA clock, and where a breach escalates to.' },
+    { key: 'devices',    name: 'Devices & eSSL',  icon: '\u{1F5A5}️', module: 'essl',
+      blurb: 'The connection to the eSSL attendance database, and which device ID belongs to whom.' },
+    { key: 'security',   name: 'Security',        icon: '\u{1F510}', module: 'core-hr',
+      blurb: 'Your own password, the letter-generator lock and the special powers passcode.' }
+];
+var activeSettingsSection = 'org';
+var settingsCardsMoved = false;
+
+function settingsSectionFor(key) { return SETTINGS_SECTIONS.find(s => s.key === key) || null; }
+function settingsSectionVisible(sec) {
+    if (!sec) return false;
+    if (typeof canAccessModule !== 'function') return true;
+    return canAccessModule(sec.module);
+}
+
+// Re-parent the tagged cards once, after the DOM exists. Moving the node keeps
+// every id and handler intact, which is why the existing render functions need
+// no changes at all.
+function relocateSettingsCards() {
+    if (settingsCardsMoved) return;
+    const panels = document.getElementById('settings-panels');
+    if (!panels) return;
+    SETTINGS_SECTIONS.forEach(sec => {
+        if (document.getElementById('settings-panel-' + sec.key)) return;
+        const host = document.createElement('div');
+        host.id = 'settings-panel-' + sec.key;
+        host.className = 'settings-panel';
+        host.style.display = 'none';
+        panels.appendChild(host);
+    });
+    document.querySelectorAll('[data-setting]').forEach(card => {
+        const host = document.getElementById('settings-panel-' + card.dataset.setting);
+        if (host) host.appendChild(card);
+    });
+    buildSettingsExtras();
+    settingsCardsMoved = true;
+}
+
+// A couple of settings have no card of their own to move, so they are built here.
+function buildSettingsExtras() {
+    const org = document.getElementById('settings-panel-org');
+    if (org && !document.getElementById('settings-establishment')) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'settings-establishment';
+        card.innerHTML = '<div class="card-header"><h3>Establishment details</h3>' +
+            '<button class="btn btn-outline" style="padding:4px 10px; font-size:0.75rem;" onclick="openEstablishment()">Edit</button></div>' +
+            '<p style="font-size:0.85rem; color:var(--text-muted);">Name, address, factory licence, PF, ESI and PT registrations, occupier and manager. ' +
+            'These head every statutory register and factory return.</p>' +
+            '<div id="settings-establishment-summary" style="font-size:0.82rem; margin-top:10px;"></div>';
+        org.insertBefore(card, org.firstChild);
+    }
+    const sec = document.getElementById('settings-panel-security');
+    if (sec && !document.getElementById('settings-security-card')) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'settings-security-card';
+        sec.appendChild(card);
+    }
+}
+
+function renderSettingsEstablishment() {
+    const el = document.getElementById('settings-establishment-summary');
+    if (!el || typeof establishment === 'undefined' || !establishment) return;
+    const row = (k, v) => '<div><span style="color:var(--text-muted);">' + k + ':</span> <strong>' + esc(v || '--') + '</strong></div>';
+    el.innerHTML = '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:6px;">' +
+        row('Name', establishment.name) + row('Factory licence', establishment.licence) +
+        row('PF code', establishment.pfCode) + row('ESI code', establishment.esiCode) +
+        row('Occupier', establishment.occupier) + row('Manager', establishment.manager) + '</div>';
+}
+
+function renderSettingsSecurity() {
+    const card = document.getElementById('settings-security-card');
+    if (!card) return;
+    const me = session ? userByEmail(session.email) : null;
+    const sp = typeof specialPowers !== 'undefined' ? specialPowers : { unlocked: false, log: [] };
+    card.innerHTML =
+        '<div class="card-header"><h3>Security</h3></div>' +
+        '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px;">' +
+            '<div style="border:1px solid var(--border); border-radius:10px; padding:14px;">' +
+                '<strong style="font-size:0.86rem;">Your password</strong>' +
+                '<p style="font-size:0.78rem; color:var(--text-muted); margin:5px 0 10px;">' +
+                    (me && me.mustChangePassword
+                        ? '<span style="color:var(--warning); font-weight:600;">Still the password this account was issued with.</span>'
+                        : 'Last set ' + esc((me && me.passwordSetOn) || 'unknown') + '.') + '</p>' +
+                '<button class="btn btn-outline" onclick="openPasswordChange(false)">Change password</button></div>' +
+            '<div style="border:1px solid var(--border); border-radius:10px; padding:14px;">' +
+                '<strong style="font-size:0.86rem;">Appointment letters</strong>' +
+                '<p style="font-size:0.78rem; color:var(--text-muted); margin:5px 0 10px;">Letter generation is ' +
+                    (typeof appointmentLetterUnlocked !== 'undefined' && appointmentLetterUnlocked
+                        ? '<strong style="color:var(--success)">unlocked</strong>' : '<strong>locked</strong>') +
+                    '. HR unlocks it before an appointment letter can be produced.</p>' +
+                '<button class="btn btn-outline" onclick="navigate(\'letters\')">Open letter generator</button></div>' +
+            '<div style="border:1px solid var(--border); border-radius:10px; padding:14px;">' +
+                '<strong style="font-size:0.86rem;">Special attendance powers</strong>' +
+                '<p style="font-size:0.78rem; color:var(--text-muted); margin:5px 0 10px;">' +
+                    (sp.unlocked ? 'Unlocked by ' + esc(sp.unlockedBy || '') + '. ' : 'Locked. ') +
+                    (sp.log || []).length + ' entr(y/ies) on the register. The console stays off the menu — ' +
+                    'type <code>sudo</code> as HR to be asked for the passcode.</p>' +
+                (sp.unlocked
+                    ? '<button class="btn btn-outline" onclick="navigate(\'special-powers\')">Open console</button>'
+                    : '<span style="font-size:0.78rem; color:var(--text-muted);">Nothing to configure while it is locked.</span>') +
+            '</div>' +
+        '</div>';
+}
+
+function renderSettingsRail() {
+    const rail = document.getElementById('settings-rail');
+    if (!rail) return;
+    const visible = SETTINGS_SECTIONS.filter(settingsSectionVisible);
+    if (!visible.some(s => s.key === activeSettingsSection)) {
+        activeSettingsSection = visible.length ? visible[0].key : '';
+    }
+    rail.innerHTML = visible.map(s =>
+        '<button class="settings-tab' + (s.key === activeSettingsSection ? ' active' : '') + '" onclick="openSettings(\'' + s.key + '\')">' +
+        '<span class="settings-tab-icon">' + s.icon + '</span>' + esc(s.name) + '</button>').join('') ||
+        '<div style="font-size:0.82rem; color:var(--text-muted); padding:10px;">No settings are open to your account.</div>';
+}
+
+function renderSettingsView() {
+    relocateSettingsCards();
+    renderSettingsRail();
+    const sec = settingsSectionFor(activeSettingsSection);
+    const head = document.getElementById('settings-heading');
+    if (head) {
+        head.innerHTML = sec
+            ? '<div style="margin-bottom:16px;"><h3 style="font-size:1.05rem;">' + sec.icon + ' ' + esc(sec.name) + '</h3>' +
+              '<p style="font-size:0.84rem; color:var(--text-muted); margin-top:3px;">' + esc(sec.blurb) + '</p></div>'
+            : '';
+    }
+    SETTINGS_SECTIONS.forEach(s => {
+        const panel = document.getElementById('settings-panel-' + s.key);
+        if (panel) panel.style.display = (s.key === activeSettingsSection) ? 'block' : 'none';
+    });
+    // Fill whichever panel is on, using the screens' own render functions.
+    const fill = {
+        org: () => { renderSettingsEstablishment(); },
+        payroll: () => { if (typeof renderCTCConfig === 'function') renderCTCConfig(); },
+        attendance: () => { renderAttendancePolicy(); renderGeoFences(); if (typeof renderAttReqRules === 'function') renderAttReqRules(); else if (typeof renderAttendanceRequests === 'function') renderAttendanceRequests(); },
+        leave: () => { if (typeof renderLeaveRuleSet === 'function') renderLeaveRuleSet(); },
+        expenses: () => { if (typeof renderExpensePolicy === 'function') renderExpensePolicy(); },
+        approvals: () => { renderWorkflowConfig(); renderWorkflowRegister(); },
+        devices: () => { renderEsslConnector(); renderEsslMapping(); },
+        security: () => { renderSettingsSecurity(); }
+    }[activeSettingsSection];
+    if (fill) { try { fill(); } catch (err) { /* a panel whose module is off has nothing to fill */ } }
+    const panel = document.getElementById('settings-panel-' + activeSettingsSection);
+    if (panel && !panel.children.length) {
+        panel.innerHTML = '<div class="card" style="background:var(--bg-main); font-size:0.85rem;">Nothing to configure here yet.</div>';
+    }
+    if (typeof applyRoleVisibility === 'function') applyRoleVisibility();
+}
+
+// Jump straight to a section, from anywhere.
+function openSettings(section) {
+    if (section) activeSettingsSection = section;
+    if (typeof navigate === 'function') navigate('settings');
+    renderSettingsView();
+}
+
 // ==========================================================================
 // LEGACY .xls READER (OLE2 compound file + BIFF8)
 // eSSL / eTimeTrackLite exports "Log Records" as a real binary .xls, so the
@@ -16152,6 +16452,16 @@ function renderEsslConnector() {
     }
     const fetchBox = document.getElementById('essl-conn-fetch');
     if (fetchBox) fetchBox.style.display = esslConfig.connector.verified ? 'block' : 'none';
+    const hint = document.getElementById('essl-conn-hint');
+    if (hint) {
+        hint.style.display = esslConfig.connector.verified ? 'none' : 'block';
+        hint.innerHTML = esslConfig.connector.url
+            ? 'The connection to <strong>' + esc(esslConfig.connector.url) + '</strong> has not been tested. ' +
+              '<a href="#" onclick="openSettings(\'devices\'); return false;" style="color:var(--primary); font-weight:600;">Test it in Settings →</a>'
+            : 'No database connection set up yet. ' +
+              '<a href="#" onclick="openSettings(\'devices\'); return false;" style="color:var(--primary); font-weight:600;">Set one up in Settings →</a>' +
+              ' Or import a file by hand below.';
+    }
     renderEsslConnectorMode();
 }
 function fetchEsslPunches() {
@@ -16884,8 +17194,9 @@ function applyAccessVisibility() {
         if (!m) return;
         el.dataset.view = m[1];
         el.dataset.module = VIEW_MODULE[m[1]] || '';
-        if (el.style.display === 'none') return;   // already hidden by the role gate
-        if (!canAccessView(m[1])) el.style.display = 'none';
+        if (el.style.display === 'none') { el.dataset.gatedOut = '1'; return; }
+        if (!canAccessView(m[1])) { el.style.display = 'none'; el.dataset.gatedOut = '1'; return; }
+        el.dataset.gatedOut = '0';
     });
     // A section heading with nothing visible under it is noise, so drop it.
     const nav = document.getElementById('sidebar-nav');
@@ -16898,11 +17209,12 @@ function applyAccessVisibility() {
                 if (kids[j].classList.contains('nav-label')) break;
                 if (kids[j].classList.contains('nav-item') && kids[j].style.display !== 'none') { any = true; break; }
             }
-            if (!any) el.style.display = 'none';
+            el.style.display = any ? 'flex' : 'none';
         });
     }
     const sp = document.getElementById('nav-special-powers');
-    if (sp && sp.style.display !== 'none' && !canAccessModule('attendance')) sp.style.display = 'none';
+    if (sp && sp.style.display !== 'none' && !canAccessModule('attendance')) { sp.style.display = 'none'; sp.dataset.gatedOut = '1'; }
+    if (typeof applyNavCollapsed === 'function') applyNavCollapsed();
     renderLicenceBanner();
 }
 
@@ -17779,6 +18091,8 @@ function accessGuard(viewId) {
 window.onload = () => {
     seedDemoDataIntoDom();
     buildViewRoles();
+    initNavGroups();
+    relocateSettingsCards();
     captureSeedSnapshot();
     loadIdentity();
     ensureSuperAdmin().then(() => {

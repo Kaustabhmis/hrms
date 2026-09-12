@@ -1032,14 +1032,56 @@ alone.
 - **Config** — multi-vertical architecture switch and a global CTC structure editor
   that drives onboarding previews and payroll runs.
 
+## Settings
+
+Every rule the system runs on sits behind one menu entry, **Settings**, in eight
+sections:
+
+| Section | What it holds |
+|---|---|
+| **Organisation** | Establishment details (the particulars heading every statutory register) and the vertical architecture |
+| **Payroll & CTC** | The global CTC structure every onboarding preview and payroll run is built from |
+| **Attendance** | Shift timing and grace, late marks, overtime, comp-off, geo-fencing and its locations, and the attendance-request rule set |
+| **Leave** | The leave rule set and the global rules above it |
+| **Expenses** | Per-category caps and the monthly cap per employee |
+| **Approvals** | Approval chains, SLAs, escalation and auto-approval limits, plus the request register |
+| **Devices & eSSL** | The connection to the eSSL attendance database, and which device ID belongs to whom |
+| **Security** | Your own password, the appointment-letter lock and the special-powers state |
+
+**The panels are not copies.** The real config cards are moved out of the
+screens that used to carry them and re-parented into Settings at boot, keeping
+their ids, their handlers and the render functions that fill them. So the leave
+rule set in Settings is the same object the leave engine enforces — there is
+still no second copy of a policy to drift out of step.
+
+Sections follow the licence: a company without the payroll module has no
+**Payroll & CTC** section, and asking for one it does not hold lands on the
+first section it does. On a Starter licence the whole of Settings is four
+sections.
+
+**eSSL SQL setup lives here**, under *Devices & eSSL* — the connector address,
+the token and **Test connection**, which reports the database, the table, the
+row count and how far the HRMS has already taken. Pulling punches stays on the
+**eSSL Device Import** screen, where the work happens; if no connection is set
+up yet, that screen says so and links straight into this section.
+
+## A menu that folds
+
+The product is wide, so the menu is long. Rather than hiding screens, **every
+group in the sidebar folds away** — click a heading to collapse it, and the
+state is remembered in that browser. Navigating to a screen always opens the
+group holding it, so a jump from code or from a link inside another screen never
+leaves you looking at a collapsed menu. Groups whose every item is hidden by role
+or licence hide themselves entirely.
+
 ## How the menu is arranged
 
 Both the sidebar and the module catalog follow the employee lifecycle, and they
 use the same grouping — so a licence maps onto what actually appears in the menu:
 
-**Company → People → Hire &amp; Onboard → Time &amp; Attendance → Payroll &amp;
-Compensation → Statutory &amp; Compliance → Talent &amp; Exit → Approvals →
-Analytics &amp; Reports → Workplace → Intelligence → System**
+**Company → People → Hire & Onboard → Time & Attendance → Payroll &
+Compensation → Statutory & Compliance → Talent & Exit → Approvals →
+Analytics & Reports → Workplace → Intelligence → System**
 
 A heading with nothing visible underneath hides itself, so a company licensed
 for a handful of modules gets a short menu rather than a page of empty sections.
