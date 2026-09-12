@@ -17,6 +17,7 @@ migrations/0001_schema.sql    26 tables, money as numeric(14,2)
 migrations/0002_rls.sql       row-level security, the three gates
 migrations/0003_modules.sql   the module catalog, generated from the module itself
 migrations/0004_auth_link.sql auth.users -> app_users, and the one-time bootstrap
+setup.sql                     all four in one paste, with a report at the end
 ```
 
 `0003` is generated from `MODULE_CATALOG` in `modules/hrms/index.html`, so the
@@ -31,23 +32,40 @@ At [supabase.com](https://supabase.com), **New project**. Pick a region:
 **Mumbai (ap-south-1)** if employee data should stay in India. Note the database
 password somewhere — you will not be shown it again.
 
-### 2. Run the migrations
+### 2. Run the setup
 
-**Dashboard → SQL Editor → New query.** Paste each file and run it, in order:
+**Dashboard → SQL Editor → New query.** Paste **`supabase/setup.sql`** — the
+whole file, one paste — and run it.
+
+It ends by telling you whether it worked:
 
 ```
-supabase/migrations/0001_schema.sql     tables
-supabase/migrations/0002_rls.sql        row-level security
-supabase/migrations/0003_modules.sql    module catalog
-supabase/migrations/0004_auth_link.sql  auth linking + bootstrap
+===========================================================
+ BISCS HRMS — setup report
+===========================================================
+ tables        : 27
+ policies      : 67
+ modules       : 30 (with 20 dependencies)
+ auth          : linked to Supabase Auth
+ tenant tables : all protected by row-level security
+
+ Looks right. Next:
+   1. Authentication -> Users -> Add user (tick Auto Confirm)
+   2. select bootstrap_owner('you@company.com','Your Company Ltd','YCL');
+   3. In the HRMS: Settings -> Backend -> project URL + anon key
+===========================================================
 ```
 
-All four are safe to run again — verified by running every one of them three
-times over a single database with zero errors. If you have the CLI instead,
-`supabase db push` does the same thing.
+The line that matters is **tenant tables**. If any table carrying `company_id`
+is not protected, that report says so as a warning rather than letting it pass
+quietly — which is the failure that would otherwise look exactly like success.
 
-`0004` reports `auth.users not present` if you run it outside Supabase. Inside
-Supabase it attaches without that notice.
+Running it again is safe: it repairs rather than breaks, and prints the same
+report. Verified by running it twice over one database and by rebuilding from
+scratch and re-running the full security suite against the result.
+
+`setup.sql` is generated from `migrations/*.sql`. Edit the migrations; if you
+prefer to run them one at a time, they work that way too, in numbered order.
 
 ### 3. Create your own login
 
