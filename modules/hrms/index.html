@@ -412,22 +412,68 @@
            ================================================================== */
         :root { --super: #7c3aed; --super-soft: #ede9fe; }
 
-        /* Sign-in gate — covers the whole application until a user is authenticated. */
-        .auth-gate { position: fixed; inset: 0; z-index: 200; background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #312e81 100%);
-            display: flex; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; }
-        .auth-card { background: var(--bg-card); border-radius: 14px; width: 100%; max-width: 420px; padding: 32px;
-            box-shadow: 0 24px 60px rgba(0,0,0,0.35); }
-        .auth-brand { display: flex; align-items: center; gap: 10px; font-size: 1.25rem; font-weight: 800; margin-bottom: 4px; }
-        .auth-brand-mark { width: 26px; height: 26px; background: var(--primary); border-radius: 6px; }
+        /* Sign-in gate — the first thing anyone sees, so it is the one screen that
+           gets a layout of its own: what the system is on the left, the form on
+           the right, and nothing else competing for attention. */
+        .auth-gate { position: fixed; inset: 0; z-index: 200; background: #0b1220;
+            display: grid; grid-template-columns: 1.05fr 1fr; overflow-y: auto; }
+        .auth-side { position: relative; padding: 56px 56px 44px; color: #e2e8f0; display: flex;
+            flex-direction: column; justify-content: space-between;
+            background: radial-gradient(1100px 600px at 15% 0%, #1e3a8a 0%, rgba(30,58,138,0) 60%),
+                        linear-gradient(150deg, #0f172a 0%, #111c33 55%, #1e1b4b 100%); }
+        .auth-side::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+            background: linear-gradient(90deg, rgba(0,0,0,0) 70%, rgba(0,0,0,0.25) 100%); }
+        .auth-side > * { position: relative; z-index: 1; }
+        .auth-brand { display: flex; align-items: center; gap: 12px; font-size: 1.35rem; font-weight: 800; color: #fff; }
+        .auth-brand-mark { width: 34px; height: 34px; border-radius: 9px; flex: none;
+            background: linear-gradient(140deg, var(--accent), var(--primary));
+            box-shadow: 0 6px 18px rgba(37,99,235,0.45); }
         .auth-brand span { color: var(--accent); }
-        .auth-lede { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 22px; line-height: 1.5; }
-        .auth-card label { display: block; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
-            letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 6px; }
-        .auth-card input { width: 100%; margin-bottom: 16px; }
-        .auth-error { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px;
-            padding: 10px 12px; font-size: 0.82rem; margin-bottom: 16px; display: none; }
-        .auth-note { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);
-            font-size: 0.74rem; color: var(--text-muted); line-height: 1.6; }
+        .auth-headline { font-size: 2rem; line-height: 1.2; font-weight: 800; color: #fff; margin: 0 0 14px;
+            letter-spacing: -0.4px; max-width: 12ch; }
+        .auth-sub { font-size: 0.95rem; line-height: 1.65; color: #a8b8d0; max-width: 42ch; }
+        .auth-points { list-style: none; margin: 30px 0 0; padding: 0; display: grid; gap: 14px; }
+        .auth-points li { display: flex; gap: 12px; align-items: flex-start; font-size: 0.88rem; color: #cbd5e1; }
+        .auth-points .pt-ico { width: 30px; height: 30px; border-radius: 8px; flex: none; display: flex;
+            align-items: center; justify-content: center; font-size: 0.95rem;
+            background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1); }
+        .auth-points strong { color: #fff; font-weight: 650; display: block; font-size: 0.88rem; }
+        .auth-points small { color: #8fa3c0; font-size: 0.78rem; }
+        .auth-foot { font-size: 0.75rem; color: #64748b; }
+
+        .auth-main { background: var(--bg-card); display: flex; align-items: center; justify-content: center;
+            padding: 40px 24px; }
+        .auth-card { width: 100%; max-width: 380px; }
+        .auth-title { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.3px; margin-bottom: 6px; }
+        .auth-lede { font-size: 0.88rem; color: var(--text-muted); margin-bottom: 26px; line-height: 1.55; }
+        .auth-card label { display: block; font-size: 0.78rem; font-weight: 650; text-transform: none;
+            letter-spacing: normal; color: var(--text-dark); margin-bottom: 6px; }
+        .auth-card input { width: 100%; padding: 11px 13px; font-size: 0.92rem; border-radius: 9px; }
+        .auth-field { margin-bottom: 18px; }
+        .auth-pass-wrap { position: relative; }
+        .auth-pass-wrap input { padding-right: 62px; }
+        .auth-eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: none;
+            background: none; color: var(--text-muted); font-size: 0.76rem; font-weight: 650; cursor: pointer;
+            padding: 6px 8px; border-radius: 6px; }
+        .auth-eye:hover { color: var(--primary); background: var(--bg-main); }
+        .auth-error { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 9px;
+            padding: 11px 13px; font-size: 0.84rem; line-height: 1.55; margin-bottom: 18px; display: none; }
+        .auth-submit { width: 100%; padding: 12px; font-size: 0.95rem; font-weight: 700; border-radius: 9px; }
+        .auth-submit[disabled] { opacity: 0.65; cursor: default; }
+        .auth-links { display: flex; justify-content: flex-end; margin: -8px 0 18px; }
+        .auth-links a { font-size: 0.8rem; color: var(--primary); text-decoration: none; }
+        .auth-links a:hover { text-decoration: underline; }
+        .auth-note { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--border);
+            font-size: 0.78rem; color: var(--text-muted); line-height: 1.65; }
+
+        /* On a phone the story panel is not worth a screenful; the form is. */
+        @media (max-width: 900px) {
+            .auth-gate { grid-template-columns: 1fr; }
+            .auth-side { padding: 32px 24px 26px; }
+            .auth-headline { font-size: 1.5rem; max-width: none; }
+            .auth-points, .auth-foot { display: none; }
+            .auth-main { padding: 32px 24px 48px; }
+        }
 
         /* Topbar identity chip — replaces the old role simulator. */
         .who { display: flex; align-items: center; gap: 10px; padding: 4px 10px 4px 4px; border: 1px solid var(--border);
@@ -513,19 +559,45 @@
          sign in with, and what you can open follows from that account.
          ========================================================== -->
     <div class="auth-gate" id="auth-gate">
-        <div class="auth-card">
+        <div class="auth-side">
             <div class="auth-brand"><div class="auth-brand-mark"></div>BISCS <span>OS</span></div>
-            <p class="auth-lede">Sign in with your work email. Your modules are whatever your
-                organisation is licensed for and your account has been granted &mdash; nothing else is shown.</p>
-            <div class="auth-error" id="auth-error"></div>
-            <label for="auth-email">Work email</label>
-            <input type="email" id="auth-email" autocomplete="username" placeholder="name@company.com"
-                   onkeydown="if(event.key==='Enter'){document.getElementById('auth-pass').focus();}">
-            <label for="auth-pass">Password</label>
-            <input type="password" id="auth-pass" autocomplete="current-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"
-                   onkeydown="if(event.key==='Enter'){signIn();}">
-            <button class="btn btn-primary" style="width:100%; padding:11px;" id="auth-submit" onclick="signIn()">Sign in</button>
-            <div class="auth-note" id="auth-note"></div>
+            <div>
+                <h1 class="auth-headline">People and payroll, in one place.</h1>
+                <p class="auth-sub">Attendance from your eSSL machines, salaries with PF, ESI and TDS worked out,
+                   and every payslip kept where you can find it again.</p>
+                <ul class="auth-points">
+                    <li><span class="pt-ico">&#128101;</span><span><strong>Everyone on the payroll</strong>
+                        <small>One record per person, from joining to final settlement.</small></span></li>
+                    <li><span class="pt-ico">&#9201;</span><span><strong>Attendance without typing</strong>
+                        <small>Punches come straight from the machine, in or out.</small></span></li>
+                    <li><span class="pt-ico">&#128176;</span><span><strong>Salary in a few clicks</strong>
+                        <small>The statutory bits are calculated, not remembered.</small></span></li>
+                </ul>
+            </div>
+            <div class="auth-foot">BISCS OS &middot; Dynamic Engineers</div>
+        </div>
+        <div class="auth-main">
+            <div class="auth-card">
+                <h2 class="auth-title">Sign in</h2>
+                <p class="auth-lede">Use the email address your HR administrator set up for you.</p>
+                <div class="auth-error" id="auth-error"></div>
+                <div class="auth-field">
+                    <label for="auth-email">Email</label>
+                    <input type="email" id="auth-email" autocomplete="username" placeholder="name@company.com"
+                           onkeydown="if(event.key==='Enter'){document.getElementById('auth-pass').focus();}">
+                </div>
+                <div class="auth-field">
+                    <label for="auth-pass">Password</label>
+                    <div class="auth-pass-wrap">
+                        <input type="password" id="auth-pass" autocomplete="current-password" placeholder="Your password"
+                               onkeydown="if(event.key==='Enter'){signIn();}">
+                        <button type="button" class="auth-eye" id="auth-eye" onclick="togglePasswordVisible()">Show</button>
+                    </div>
+                </div>
+                <div class="auth-links"><a href="#" onclick="forgotPassword(); return false;">Forgot password?</a></div>
+                <button class="btn btn-primary auth-submit" id="auth-submit" onclick="signIn()">Sign in</button>
+                <div class="auth-note" id="auth-note"></div>
+            </div>
         </div>
     </div>
 
@@ -19216,7 +19288,7 @@ function signOut() {
         if (session.remote && typeof BiscsBackend !== 'undefined') BiscsBackend.signOut();
     }
     session = null;
-    document.getElementById('auth-gate').style.display = 'flex';
+    document.getElementById('auth-gate').style.display = 'grid';
     document.getElementById('auth-email').value = '';
     document.getElementById('auth-pass').value = '';
     authError('');
@@ -19271,23 +19343,62 @@ function renderWhoBar() {
     }
 }
 
+// Whether the page is somewhere a stranger could be reading it. On a laptop or
+// a private network the first-run credentials are a convenience; on a public
+// address they are the front-door key taped to the door, so they are not shown.
+function onPrivateAddress() {
+    const h = location.hostname;
+    return location.protocol === 'file:' || h === 'localhost' || h === '127.0.0.1' || h === '' ||
+           /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+}
 function renderAuthNote() {
     const el = document.getElementById('auth-note');
     if (!el) return;
     if (backendLive()) {
-        el.innerHTML = 'Signed in against your Supabase project. Accounts, roles and modules are ' +
-            'decided by the database \u2014 this page cannot grant itself anything.';
+        el.innerHTML = 'Accounts, roles and what each person can open are decided by your database, ' +
+            'not by this page.';
         return;
     }
     const su = userByEmail(SUPER_EMAIL);
-    if (su && su.mustChangePassword) {
-        el.innerHTML = 'First run on this browser. The owner account <strong>' + esc(SUPER_EMAIL) +
-            '</strong> is issued with the password <strong>' + esc(DEFAULT_SUPER_PASSWORD) +
-            '</strong> and will ask you to replace it as soon as you are in.';
+    if (su && su.mustChangePassword && onPrivateAddress()) {
+        el.innerHTML = 'First run on this browser. Sign in as <strong>' + esc(SUPER_EMAIL) +
+            '</strong> with the password <strong>' + esc(DEFAULT_SUPER_PASSWORD) +
+            '</strong>; you will be asked to replace it straight away.';
+    } else if (su && su.mustChangePassword) {
+        el.innerHTML = 'First run on this browser. Sign in with the owner account for this ' +
+            'installation \u2014 you will be asked to set a new password straight away.';
     } else {
-        el.innerHTML = 'Accounts are issued by your HR administrator. No account can see a module ' +
-            'its company has not been issued.';
+        el.innerHTML = 'Your HR administrator issues accounts. Nobody can open a screen their ' +
+            'account has not been given.';
     }
+}
+
+// Small courtesies that make a sign-in screen feel finished.
+function togglePasswordVisible() {
+    const i = document.getElementById('auth-pass'), b = document.getElementById('auth-eye');
+    if (!i || !b) return;
+    const show = i.type === 'password';
+    i.type = show ? 'text' : 'password';
+    b.innerText = show ? 'Hide' : 'Show';
+    i.focus();
+}
+
+// A reset link can only come from the backend. Saying so plainly beats a link
+// that looks like it does something and does not.
+function forgotPassword() {
+    const email = String((document.getElementById('auth-email') || {}).value || '').trim().toLowerCase();
+    if (!backendLive())
+        return authError('Passwords are held in this browser on this installation. ' +
+            'Ask whoever set it up to reset yours from Users &amp; Access.');
+    if (!email) {
+        authError('Type your email address above first, then click this again.');
+        const em = document.getElementById('auth-email'); if (em) em.focus();
+        return;
+    }
+    authError('');
+    BiscsBackend.sendPasswordReset(email).then(() => {
+        showToast('If ' + email + ' has an account, a reset link is on its way.', 'info');
+    }).catch(err => authError(esc(String(err && err.message || err))));
 }
 
 // --- Tenant data ---------------------------------------------------------
@@ -20143,7 +20254,7 @@ window.onload = () => {
         renderAuthNote();
         renderProviderUsers();
         const gate = document.getElementById('auth-gate');
-        if (gate) gate.style.display = 'flex';
+        if (gate) gate.style.display = 'grid';
         const em = document.getElementById('auth-email');
         if (em) em.focus();
         audit('Application started', companies.length + ' companies · ' + appUsers.length + ' accounts', 'System');
