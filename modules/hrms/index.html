@@ -712,9 +712,9 @@
                         <select id="user-role-filter" onchange="renderProviderUsers()" style="width:auto;">
                             <option value="">All roles</option>
                             <option value="super">Super Admin</option>
-                            <option value="admin">HR Admin</option>
-                            <option value="manager">Manager</option>
-                            <option value="employee">Employee (ESS)</option>
+                            <option value="hr">HR</option>
+                            <option value="admin">Admin</option>
+                            <option value="employee">Employee</option>
                         </select>
                     </div>
                     <div style="overflow-x:auto;">
@@ -3918,6 +3918,36 @@ function numberToWordsIndian(num) {
 }
 
 let currentRole = 'admin';
+
+// ==========================================================================
+// ROLES
+// Three roles run the system — the provider's Super Admin, and HR and Admin
+// inside a company. Everybody else is an employee; somebody with people
+// reporting to them is an employee who also approves, not a separate rank.
+// The markup still says data-role="admin" for a control screen and
+// data-role="manager" for an approver screen, and these two functions are what
+// those mean, so the rule lives in one place rather than in sixty attributes.
+// ==========================================================================
+const CONTROL_ROLES = ['super', 'hr', 'admin'];
+function isControlRole(role) { return CONTROL_ROLES.indexOf(role || currentRole) !== -1; }
+// An employee with direct reports approves for their team.
+function hasDirectReports(empId) {
+    if (!empId) return false;
+    return employees.some(e => e.managerId === empId && (!e.exitDate || e.exitDate >= DEMO_TODAY));
+}
+function isApprover(role, empId) {
+    role = role || currentRole;
+    if (isControlRole(role)) return true;
+    return hasDirectReports(empId || (loggedInUser && loggedInUser.id));
+}
+// Who an action is recorded as.
+function actorLabel() {
+    if (currentRole === 'super') return 'Super Admin';
+    if (currentRole === 'hr') return 'HR';
+    if (currentRole === 'admin') return 'Admin';
+    return (loggedInUser && loggedInUser.name) || 'Employee';
+}
+
 let payrollStage = 0;
 let currentPayrollData = [];
 
@@ -4375,7 +4405,7 @@ function postLeaveCredit(empId, code, days, kind, note, onIso, period) {
     const id = 'LC-' + String(nextLeaveCreditSeq++).padStart(4, '0');
     const rec = { id: id, empId: empId, code: code, days: Math.round(days * 10) / 10,
                   on: onIso || DEMO_TODAY, period: period || (onIso || DEMO_TODAY).slice(0, 7),
-                  kind: kind, note: note || '', by: currentRole === 'admin' ? 'HR Admin' : 'Manager' };
+                  kind: kind, note: note || '', by: actorLabel() };
     leaveCredits.push(rec);
     return rec;
 }
@@ -5379,7 +5409,7 @@ function commitAttendanceRequest(id, opts) {
         r.overrideNote = opts.note || (blocks.map(b => b.rule).join(', ') || 'special power');
     }
     r.status = 'Approved';
-    r.actionBy = currentRole === 'admin' ? 'HR Admin' : 'Manager';
+    r.actionBy = actorLabel();
     applyAttendanceRequest(r);
     audit('Attendance request approved', r.id + ' · ' + empName(r.empId) + ' · ' + t.name + ' ' + r.days + 'd' +
         (r.allowance ? ' · allowance ' + fmtINR(r.allowance) : '') + (r.overridden ? ' (override: ' + r.overrideNote + ')' : ''), 'Attendance');
@@ -5427,7 +5457,7 @@ function discardAttendanceRequest(id) {
     if (!r) return;
     if (r.status === 'Approved') unapplyAttendanceRequest(r);
     r.status = 'Rejected';
-    r.actionBy = currentRole === 'admin' ? 'HR Admin' : 'Manager';
+    r.actionBy = actorLabel();
     audit('Attendance request rejected', r.id + ' · ' + empName(r.empId) + ' · ' + attReqTypeName(r.code), 'Attendance');
     refreshAttendanceRequestViews();
     showToast(r.id + ' rejected.', 'warning');
@@ -5467,12 +5497,12 @@ var nextSpecialSeq = 1;
 // and the passcode is checked before anything is revealed.
 function hasSpecialPower() {
     if (!specialPowers.enabled) return false;
-    if (specialPowers.unlocked && currentRole === 'admin') return true;
-    return specialPowers.holders.some(h => h.empId === loggedInUser.id && h.to >= DEMO_TODAY && currentRole !== 'employee');
+    if (specialPowers.unlocked && isControlRole()) return true;
+    return specialPowers.holders.some(h => h.empId === loggedInUser.id && h.to >= DEMO_TODAY && isApprover());
 }
 function unlockSpecialPowers(code) {
     if (!specialPowers.enabled) return showToast('Special powers are switched off for this tenant.', 'error');
-    if (currentRole !== 'admin')
+    if (!isControlRole())
         return showToast('Special powers are held by HR and the super admin only.', 'error');
     const entered = code !== undefined ? code : prompt('Super admin passcode:');
     if (entered === null) return;
@@ -6082,7 +6112,7 @@ function setClearanceItem(empId, idx, cleared) {
         if (out > 0) return showToast('Cannot clear — ' + fmtINR(out) + ' still outstanding. It will be recovered in the F&F settlement.', 'warning');
     }
     c.items[idx].status = cleared ? 'Cleared' : 'Pending';
-    c.items[idx].clearedBy = cleared ? (currentRole === 'admin' ? 'HR Admin' : empName(loggedInUser.id)) : '';
+    c.items[idx].clearedBy = cleared ? (isControlRole() ? actorLabel() : empName(loggedInUser.id)) : '';
     c.items[idx].on = cleared ? DEMO_TODAY : '';
     audit('Clearance ' + (cleared ? 'cleared' : 'reopened'), empName(empId) + ' · ' + c.items[idx].dept + ' · ' + c.items[idx].item, 'Offboarding');
     renderClearance(); renderOffboarding();
@@ -6440,7 +6470,7 @@ function saveNotice() {
         const id = 'NTC-' + (nextNoticeSeq++);
         notices.unshift({ id: id, title: title, body: body, category: category, priority: priority,
             holidayDate: cat.declaresHoliday ? holidayDate : '', audience: audience,
-            publishedBy: currentRole === 'admin' ? 'HR Admin' : loggedInUser.name, publishedOn: DEMO_TODAY,
+            publishedBy: actorLabel(), publishedOn: DEMO_TODAY,
             effectiveFrom: effectiveFrom, expiresOn: expiresOn, pinned: pinned, ackRequired: ackRequired,
             reads: {}, acks: {}, status: 'Published' });
         editingNoticeId = id;
@@ -6624,8 +6654,8 @@ function canActNow(inst) {
     if (inst.status !== 'Pending') return false;
     const lv = currentLevelOf(inst);
     if (!lv) return false;
-    if (currentRole === 'admin') return true;                       // HR admin can act at any level
-    if (currentRole === 'manager') return lv.role === 'MANAGER' && lv.actorId === loggedInUser.id;
+    if (isControlRole()) return true;                               // HR and Admin can act at any level
+    if (isApprover()) return lv.role === 'MANAGER' && lv.actorId === loggedInUser.id;
     return false;
 }
 function actOnWorkflow(instId, action, note) {
@@ -6633,7 +6663,7 @@ function actOnWorkflow(instId, action, note) {
     if (!inst || inst.status !== 'Pending') return;
     const lv = currentLevelOf(inst);
     if (!lv) return;
-    const actor = currentRole === 'admin' ? 'HR Admin' : (currentRole === 'manager' ? empName(loggedInUser.id) : loggedInUser.name);
+    const actor = isControlRole() ? actorLabel() : empName(loggedInUser.id);
     lv.actor = actor; lv.on = DEMO_TODAY; lv.note = note || '';
     if (action === 'reject') {
         lv.status = 'Rejected';
@@ -6701,7 +6731,7 @@ var auditLog = [];
 function audit(action, detail, category) {
     auditLog.unshift({
         ts: new Date().toLocaleString('en-GB'),
-        user: currentRole === 'admin' ? 'HR Admin' : (currentRole === 'manager' ? 'Manager' : loggedInUser.name),
+        user: actorLabel(),
         role: currentRole, category: category || 'General', action: action, detail: detail || ''
     });
     if (auditLog.length > 400) auditLog.pop();
@@ -7016,11 +7046,16 @@ function applyRoleVisibility() {
     document.querySelectorAll('[data-role]').forEach(el => {
         if (!el.dataset.role) return;
         const roles = el.dataset.role.split(/\s+/);
-        // The provider account sees every role's screens; provider-only screens
-        // are never shown to anyone else.
-        const allowed = roles.indexOf('super') !== -1
-            ? currentRole === 'super'
-            : (roles.indexOf(currentRole) !== -1 || currentRole === 'super');
+        // "super" screens are the provider's alone. Otherwise "admin" in the
+        // markup means a control screen (Super Admin, HR or Admin), "manager"
+        // means an approver screen (a control role, or an employee with people
+        // reporting to them), and "employee" means everybody.
+        let allowed;
+        if (roles.indexOf('super') !== -1) allowed = currentRole === 'super';
+        else if (roles.indexOf('admin') !== -1 && isControlRole()) allowed = true;
+        else if (roles.indexOf('manager') !== -1 && isApprover()) allowed = true;
+        else if (roles.indexOf('employee') !== -1) allowed = true;
+        else allowed = currentRole === 'super';
         if (!allowed) { el.style.display = 'none'; return; }
         // Restore the display each element type expects when it is allowed.
         if (el.classList.contains('nav-label')) el.style.display = 'flex';
@@ -7029,7 +7064,7 @@ function applyRoleVisibility() {
     });
     // The special powers entry is gated by the lock as well as by the role.
     const sp = document.getElementById('nav-special-powers');
-    if (sp) sp.style.display = (specialPowers.unlocked && (currentRole === 'admin' || currentRole === 'super')) ? 'flex' : 'none';
+    if (sp) sp.style.display = (specialPowers.unlocked && isControlRole()) ? 'flex' : 'none';
     // Module entitlement is applied on top of the role gate.
     if (typeof applyAccessVisibility === 'function' && session) applyAccessVisibility();
 }
@@ -9603,7 +9638,7 @@ function commitLeave(id) {
             const split = splitLeaveSpan(l.from, l.to, ev.chargeDays, leavePolicy.global.sandwichRule);
             const lwpRec = { id: l.id + '-L', empId: l.empId, code: 'LWP', from: split.lwpFrom, to: l.to,
                              days: ev.lwpDays, status: 'Approved', reason: 'Balance shortfall on ' + l.id,
-                             appliedOn: l.appliedOn, actionBy: currentRole === 'admin' ? 'HR Admin' : 'Manager' };
+                             appliedOn: l.appliedOn, actionBy: actorLabel() };
             l.to = split.paidTo;
             l.days = ev.chargeDays;
             leaveLedger.unshift(lwpRec);
@@ -9613,7 +9648,7 @@ function commitLeave(id) {
         }
     }
     l.status = 'Approved';
-    l.actionBy = currentRole === 'admin' ? 'HR Admin' : 'Manager';
+    l.actionBy = actorLabel();
     audit('Leave approved', empName(l.empId) + ' · ' + leaveTypeByCode(l.code).name + ' ' + l.days + 'd from ' + l.from + extra, 'Leave');
     refreshLeaveDependents();
     showToast(message, tone);
@@ -9622,7 +9657,7 @@ function discardLeave(id) {
     const l = leaveLedger.find(x => x.id === id);
     if (!l) return;
     l.status = 'Rejected';
-    l.actionBy = currentRole === 'admin' ? 'HR Admin' : 'Manager';
+    l.actionBy = actorLabel();
     audit('Leave rejected', empName(l.empId) + ' · ' + l.days + 'd from ' + l.from, 'Leave');
     refreshLeaveDependents();
     showToast('Leave rejected for ' + empName(l.empId) + '.', 'warning');
@@ -10057,7 +10092,7 @@ function submitAttendanceRequest(btn) {
 // ==========================================================================
 function renderSpecialPowers() {
     const nav = document.getElementById('nav-special-powers');
-    if (nav) nav.style.display = (specialPowers.unlocked && currentRole === 'admin') ? 'flex' : 'none';
+    if (nav) nav.style.display = (specialPowers.unlocked && isControlRole()) ? 'flex' : 'none';
     const st = document.getElementById('sp-status');
     if (!st) return;
     if (!hasSpecialPower()) {
@@ -10251,7 +10286,7 @@ function renderLeaveRuleSet() {
             chip('Team capacity', g.maxTeamOnLeavePct + '% per dept') +
             chip('Last accrual run', g.lastAccrualRun ? periodMeta(g.lastAccrualRun).label : 'never') +
             chip('Year-end close', g.lastYearEndRun || 'not run') +
-            (currentRole === 'admin' ? '<button class="btn btn-outline" style="align-self:center;" onclick="openGlobalRules()">Edit global rules</button>' : '') +
+            (isControlRole() ? '<button class="btn btn-outline" style="align-self:center;" onclick="openGlobalRules()">Edit global rules</button>' : '') +
         '</div>';
     }
     const tb = document.getElementById('leave-rules-table');
@@ -10300,9 +10335,9 @@ function renderLeaveRuleSet() {
                     '<strong>' + b.label + '</strong>' +
                     '<span style="color:var(--text-muted)">' + prettyDate(b.from) + ' → ' + prettyDate(b.to) + '</span>' +
                     '<span style="color:var(--text-muted)">' + ((b.codes && b.codes.length) ? b.codes.join(', ') : 'all types') + '</span>' +
-                    (currentRole === 'admin' ? '<button class="btn btn-outline" style="margin-left:auto; padding:3px 8px; font-size:0.7rem;" onclick="removeBlackout(' + i + ')">Remove</button>' : '') +
+                    (isControlRole() ? '<button class="btn btn-outline" style="margin-left:auto; padding:3px 8px; font-size:0.7rem;" onclick="removeBlackout(' + i + ')">Remove</button>' : '') +
                 '</div>').join('')) +
-            (currentRole === 'admin' ? '<button class="btn btn-outline" style="margin-top:10px; padding:5px 10px; font-size:0.78rem;" onclick="addBlackout()">+ Add blackout window</button>' : '');
+            (isControlRole() ? '<button class="btn btn-outline" style="margin-top:10px; padding:5px 10px; font-size:0.78rem;" onclick="addBlackout()">+ Add blackout window</button>' : '');
     }
     if (typeof applyRoleVisibility === 'function') applyRoleVisibility();
 }
@@ -15736,7 +15771,7 @@ function setManualMark(empId, iso, mark, reason, silent) {
     else delete attendanceExceptions[empId][iso];
     manualAttendance.unshift({ id: 'MA-' + String(nextManualSeq++).padStart(4, '0'), empId: empId, date: iso,
         mark: mark, prev: prev, reason: reason || '', on: DEMO_TODAY,
-        by: currentRole === 'admin' ? 'HR Admin' : 'Manager' });
+        by: actorLabel() });
     audit('Attendance marked manually', empName(empId) + ' · ' + prettyDate(iso) + ' → ' +
         (mark ? manualMarkLabel(mark) : 'override cleared') + (reason ? ' · ' + reason : ''), 'Attendance');
     if (!silent) { refreshAttendanceViews(); refreshLeaveDependents(); }
@@ -15804,7 +15839,7 @@ function saveManualPunch() {
     if (!reason) return showToast('A manual punch needs a reason.', 'error');
     // Replace whatever was there for that day rather than stacking a second pair.
     punchLog = punchLog.filter(p => !(p.empId === empId && p.date === iso));
-    const who = currentRole === 'admin' ? 'HR Admin' : 'Manager';
+    const who = actorLabel();
     pushPunch(empId, iso, inT, 'IN', 'Manual', site, who, { geoStatus: 'manual' });
     if (outT) pushPunch(empId, iso, outT, 'OUT', 'Manual', site, who, { geoStatus: 'manual' });
     const rec = syncDailyFromPunches(empId, iso);
@@ -15812,7 +15847,7 @@ function saveManualPunch() {
     if (attendanceExceptions[empId] && attendanceExceptions[empId][iso] === 'A') delete attendanceExceptions[empId][iso];
     manualAttendance.unshift({ id: 'MA-' + String(nextManualSeq++).padStart(4, '0'), empId: empId, date: iso,
         mark: 'PUNCH', prev: '', reason: reason + ' (' + inT + ' → ' + (outT || 'open') + ')', on: DEMO_TODAY,
-        by: currentRole === 'admin' ? 'HR Admin' : 'Manager' });
+        by: actorLabel() });
     audit('Punch entered by hand', empName(empId) + ' · ' + prettyDate(iso) + ' · ' + inT + ' → ' + (outT || 'open') +
         ' · ' + reason, 'Attendance');
     closeModal('modal-manual-att');
@@ -18166,7 +18201,9 @@ function roleMayOpen(viewId) {
     if (currentRole === 'super') return true;
     const roles = VIEW_ROLES[viewId];
     if (!roles || !roles.length) return true;
-    return roles.indexOf(currentRole) !== -1;
+    if (roles.indexOf('admin') !== -1 && isControlRole()) return true;
+    if (roles.indexOf('manager') !== -1 && isApprover()) return true;
+    return roles.indexOf('employee') !== -1;
 }
 function moduleByKey(key) { return MODULE_CATALOG.find(m => m.key === key) || null; }
 function moduleName(key) { const m = moduleByKey(key); return m ? m.name : key; }
@@ -18411,8 +18448,20 @@ function loadIdentity() {
         if (!raw) return false;
         const snap = JSON.parse(raw);
         IDENTITY_KEYS.forEach(k => { if (snap[k] !== undefined) window[k] = snap[k]; });
+        migrateRoles();
         return true;
     } catch (err) { return false; }
+}
+// One-time move to the four-role model.
+function migrateRoles() {
+    let moved = 0;
+    (appUsers || []).forEach(u => {
+        if (u.role === 'manager') { u.role = 'employee'; moved++; }
+    });
+    if (moved) {
+        saveIdentity();
+        audit('Accounts migrated', moved + ' manager account(s) are now employees who approve for their team', 'Security');
+    }
 }
 function provLog(event, subject, detail) {
     provisioningLog.unshift({
@@ -18516,9 +18565,9 @@ function applyAccessVisibility() {
 function firstAccessibleView() {
     if (!session) return 'dashboard';
     if (session.role === 'super') return 'provider-companies';
-    const order = session.role === 'employee' ? ['ess-profile', 'feed', 'ess-attendance', 'ess-leaves', 'ess-payslips']
-        : session.role === 'manager' ? ['manager-inbox', 'ess-profile', 'feed', 'performance']
-        : ['dashboard', 'directory', 'feed', 'payroll', 'attendance'];
+    const order = isControlRole(session.role)
+        ? ['dashboard', 'directory', 'feed', 'payroll', 'attendance']
+        : (isApprover(session.role) ? ['manager-inbox', 'ess-profile', 'feed'] : ['ess-profile', 'feed', 'ess-attendance', 'ess-leaves', 'ess-payslips']);
     const hit = order.find(v => canAccessView(v));
     if (hit) return hit;
     const nav = Array.from(document.querySelectorAll('.nav-item')).find(el => el.style.display !== 'none' && el.dataset.view);
@@ -18667,7 +18716,7 @@ function bindIdentityToEmployee(user) {
     if (!emp) emp = employees[0] || null;
     if (emp) loggedInUser = { id: emp.id, name: emp.name, role: emp.role };
     else loggedInUser = { id: '', name: user.name, role: user.role };
-    if (currentRole === 'employee' || currentRole === 'manager') initESS();
+    if (!isControlRole()) initESS();
 }
 
 function renderWhoBar() {
@@ -18676,7 +18725,7 @@ function renderWhoBar() {
     const nm = document.getElementById('who-name');
     const mt = document.getElementById('who-meta');
     const tn = document.getElementById('topbar-tenant');
-    const roleLabel = { super: 'Super Admin', admin: 'HR Admin', manager: 'Manager', employee: 'Employee' }[session.role] || session.role;
+    const roleLabel = ROLE_LABEL[session.role] || session.role;
     if (av) {
         av.innerText = (session.name || session.email).trim().charAt(0).toUpperCase();
         av.classList.toggle('is-super', session.role === 'super');
@@ -19032,7 +19081,13 @@ function exportCompanyRegister() {
 }
 
 // --- Provider console: users & access -----------------------------------
-const ROLE_LABEL = { super: 'Super Admin', admin: 'HR Admin', manager: 'Manager', employee: 'Employee (ESS)' };
+const ROLE_LABEL = { super: 'Super Admin', hr: 'HR', admin: 'Admin', employee: 'Employee' };
+const ROLE_NOTE = {
+    super: 'Runs the installation: companies, licences and every account.',
+    hr: 'Runs HR inside the company — people, attendance, leave, payroll and settings.',
+    admin: 'The same control as HR. Use it for a second administrator.',
+    employee: 'Self-service only. Somebody with people reporting to them also gets the approval inbox, automatically.'
+};
 function renderProviderUsers() {
     const filt = document.getElementById('user-company-filter');
     if (filt) {
@@ -19067,7 +19122,10 @@ function renderProviderUsers() {
                 (u.mustChangePassword ? '<br><span class="badge badge-warning" style="text-transform:none;">Default password</span>' : '') + '</td>' +
             '<td style="font-size:0.82rem;">' + esc(u.email) + '</td>' +
             '<td>' + (u.role === 'super' ? '<em style="color:var(--super); font-weight:600;">Provider</em>' : esc(companyName(u.companyId))) + '</td>' +
-            '<td><span class="badge ' + (u.role === 'super' ? '' : 'badge-info') + '"' + (u.role === 'super' ? ' style="background:var(--super-soft); color:#5b21b6;"' : '') + '>' + esc(ROLE_LABEL[u.role] || u.role) + '</span></td>' +
+            '<td><span class="badge ' + (u.role === 'super' ? '' : isControlRole(u.role) ? 'badge-info' : 'badge-neutral') + '"' +
+                (u.role === 'super' ? ' style="background:var(--super-soft); color:#5b21b6;"' : '') + '>' + esc(ROLE_LABEL[u.role] || u.role) + '</span>' +
+                (u.role === 'employee' && u.empId && hasDirectReports(u.empId)
+                    ? '<br><span style="font-size:0.7rem; color:var(--text-muted);">also approves for their team</span>' : '') + '</td>' +
             '<td style="font-size:0.8rem;">' + accessText + '</td>' +
             '<td><span class="badge ' + (u.status === 'Active' ? 'badge-success' : 'badge-danger') + '">' + esc(u.status) + '</span></td>' +
             '<td style="font-size:0.76rem; color:var(--text-muted);">' + esc(u.lastSignIn || 'never') + '</td>' +
@@ -19108,7 +19166,7 @@ function renderUserEditor() {
             field('Full name', '<input type="text" id="us-name" value="' + esc(d.name) + '" placeholder="Full name">') +
             field('Role', '<select id="us-role" onchange="onUserRoleChange(this.value)">' +
                 Object.keys(ROLE_LABEL).map(r => '<option value="' + r + '"' + (d.role === r ? ' selected' : '') + '>' + ROLE_LABEL[r] + '</option>').join('') + '</select>',
-                isSuper ? 'A provider account holds every module of every company.' : 'The role decides which controls appear inside a module.') +
+                ROLE_NOTE[d.role] || '') +
             (isSuper ? '' : field('Company', '<select id="us-company" onchange="onUserCompanyChange(this.value)">' +
                 companies.map(c => '<option value="' + c.id + '"' + (d.companyId === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select>')) +
             (isSuper ? '' : field('Employee record', '<select id="us-emp">' + empOptions + '</select>',

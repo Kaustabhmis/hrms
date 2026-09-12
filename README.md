@@ -129,6 +129,28 @@ Passwords are stored salted and hashed — SHA-256 through WebCrypto where the
 browser offers it, and a deterministic fallback where it does not, with each
 record recording which was used. The plain text is never stored.
 
+## Roles
+
+Four, and only three of them control anything:
+
+| Role | What it is |
+|---|---|
+| **Super Admin** | The provider. Companies, licences and every account on the installation. |
+| **HR** | Runs HR inside one company — people, attendance, leave, payroll, settings. |
+| **Admin** | The same control as HR. For a second administrator. |
+| **Employee** | Self-service only. |
+
+**There is no Manager rank.** Somebody with people reporting to them is an
+employee who also approves, and that is read from the org chart rather than
+granted: give an employee a direct report and the approval inbox appears; move
+the report away and it goes. Accounts stored under the old model are migrated
+on load, and the account list marks which employees also approve.
+
+Verified: HR and Admin both reach 65 menu items and every control screen; an
+employee with reports gets 24 items and the approval inbox but is refused the
+directory, payroll, settings and the provider console; an employee without
+reports gets 19 and no inbox.
+
 ### Module Catalog
 
 The 29 issuable modules across five categories — Foundation, Time, Payroll,
