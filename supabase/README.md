@@ -160,8 +160,26 @@ again."* It is safe to run twice.
 
 ### 5. Point the module at it
 
-**Dashboard → Project Settings → API.** Copy the **Project URL** and the
-**anon public** key.
+**Dashboard → Project Settings → API Keys.** Copy the **Project URL** and the
+public key.
+
+> **Supabase renamed these keys**, so what you see depends on when the project
+> was made:
+>
+> | Now called | Looks like | Use it? |
+> |---|---|---|
+> | **Publishable key** | `sb_publishable_…` | **Yes** |
+> | **anon** (under *Legacy API keys*) | `eyJ…` | Yes, equivalent |
+> | **Secret key** | `sb_secret_…` | **Never in a browser** |
+> | **service_role** (legacy) | `eyJ…` | **Never in a browser** |
+>
+> If there is no "anon" anywhere, you have a newer project — take the
+> **publishable** key. The **Connect** button at the top of the dashboard shows
+> the URL and key together, which is often quicker than hunting through
+> settings.
+>
+> The settings screen accepts either public form and refuses both private ones,
+> naming which is which rather than just failing.
 
 In the HRMS: sign in as the super admin, then **Settings → Backend**. Paste
 both, press **Test connection**. It should say:

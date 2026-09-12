@@ -2730,15 +2730,22 @@
                     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; align-items:end;">
                         <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Project URL</label>
                             <input type="text" id="sb-url" placeholder="https://xxxx.supabase.co"></div>
-                        <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Anon key</label>
-                            <input type="password" id="sb-key" placeholder="the public anon key, not the service key"></div>
+                        <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Publishable key</label>
+                            <input type="password" id="sb-key" placeholder="sb_publishable_… (or a legacy anon key)"></div>
                         <div style="display:flex; gap:8px;"><button class="btn btn-outline" onclick="testBackend()">Test connection</button></div>
                     </div>
                     <div id="sb-status" style="font-size:0.83rem; margin-top:12px;"></div>
                     <div style="font-size:0.78rem; color:var(--text-muted); margin-top:12px; line-height:1.6;">
-                        Use the <strong>anon</strong> key. It is meant to be public — row-level security is what protects
-                        the data, not the key. Never put the service-role key in a browser: it bypasses every policy.
-                        Run the migrations in <code>supabase/migrations</code> first.</div>
+                        <strong>Where to find these:</strong> Supabase dashboard → <strong>Project Settings → API Keys</strong>.
+                        Supabase renamed them, so depending on when your project was made you want either the
+                        <strong>Publishable key</strong> (<code>sb_publishable_…</code>) or, under
+                        <em>Legacy API keys</em>, the <strong>anon</strong> key (<code>eyJ…</code>). Either is fine.
+                        The <strong>Connect</strong> button at the top of the dashboard shows both the URL and the key together.
+                        <br><br>
+                        These keys are <em>meant</em> to be public — row-level security is what protects the data, not the
+                        key. What must never go in a browser is the <strong>secret</strong> key
+                        (<code>sb_secret_…</code>, formerly <code>service_role</code>), which bypasses every policy.
+                        Run <code>supabase/setup.sql</code> first if you have not.</div>
                 </div>
 
 
@@ -8400,9 +8407,21 @@ function testBackend() {
     const url = (document.getElementById('sb-url') || {}).value || '';
     const key = (document.getElementById('sb-key') || {}).value || '';
     if (!url.trim() || !key.trim()) return set('Enter both the project URL and the anon key.', 'var(--danger)');
-    if (/service_role/.test(key) || key.length > 500)
-        return set('<strong>That looks like the service-role key.</strong> It bypasses every row-level security policy ' +
-            'and must never be in a browser. Use the anon key.', 'var(--danger)');
+    // Supabase renamed these: the public key is now called "publishable"
+    // (sb_publishable_…) and the private one "secret" (sb_secret_…), with the
+    // older anon / service_role JWTs kept as legacy. Both private forms are
+    // refused, because either one in a browser hands over the whole database.
+    if (/^sb_secret_/i.test(key) || /service_role/.test(key))
+        return set('<strong>That is the secret key.</strong> It bypasses every row-level security policy, so ' +
+            'anyone who opens this page would have your whole database. Use the <strong>publishable</strong> key ' +
+            '(<code>sb_publishable_…</code>), or the legacy <strong>anon</strong> key.', 'var(--danger)');
+    if (key.length > 500)
+        return set('That key is far longer than either a publishable or an anon key. Check you have copied the right one.', 'var(--danger)');
+    // A positive check as well, so a mistyped or half-copied key is caught here
+    // rather than as a puzzling failure from the server.
+    if (!/^sb_publishable_/i.test(key) && !/^eyJ/.test(key))
+        return set('That does not look like a Supabase key. The publishable key starts <code>sb_publishable_</code>; ' +
+            'the legacy anon key starts <code>eyJ</code>. Find it under <strong>Project Settings \u2192 API Keys</strong>.', 'var(--danger)');
     BiscsBackend.saveConfig({ url: url.trim(), anonKey: key.trim() });
     set('Connecting…');
     BiscsBackend.ping().then(r => {
