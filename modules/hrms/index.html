@@ -8380,12 +8380,20 @@ const FORMULA_VAR_HELP = [
 function backendReady() {
     return typeof BiscsBackend !== 'undefined' && BiscsBackend.isConfigured();
 }
+// Dynamic Engineers' own project, so a fresh browser arrives at the sign-in
+// screen already pointed at the right place instead of asking the person in
+// front of it for a URL and a key. Publishable keys are designed to sit in
+// client code — row-level security is what protects the data — and anything
+// saved in Settings overrides these.
+const SB_DEFAULT_URL = 'https://oacuhjpzivscczjbfewj.supabase.co';
+const SB_DEFAULT_KEY = 'sb_publishable_aJ1MgCcqLyUCufVwXYSnew_7VaYaVqQ';
+
 function renderBackendSettings() {
     if (typeof BiscsBackend === 'undefined') return;
     const c = BiscsBackend.loadConfig();
     const u = document.getElementById('sb-url'), k = document.getElementById('sb-key');
-    if (u && document.activeElement !== u) u.value = c.url || '';
-    if (k && document.activeElement !== k) k.value = c.anonKey || '';
+    if (u && document.activeElement !== u) u.value = c.url || SB_DEFAULT_URL;
+    if (k && document.activeElement !== k) k.value = c.anonKey || SB_DEFAULT_KEY;
     const badge = document.getElementById('backend-badge');
     if (badge) {
         badge.innerHTML = BiscsBackend.isLive()
@@ -18922,16 +18930,39 @@ function signIn() {
             passEl.value = '';
             const msg = String(err && err.message || err);
             if (/could not reach|network|fetch/i.test(msg)) {
-                // Unreachable is not the same as refused, and must not look like it.
-                authError('Cannot reach the backend. ' + esc(msg) +
-                    '<br><br>You can still sign in with a local account while it is down.');
-            } else {
-                provLog('Sign-in refused', email, msg);
-                authError(esc(msg));
+                // Unreachable is not the same as refused. A backend that is down
+                // must not lock everyone out of a module that ran perfectly well
+                // without one, so fall through to the local gate and say so.
+                provLog('Backend unreachable', email, msg);
+                showToast('Cannot reach the backend — checking this account locally instead.', 'warning');
+                return signInLocally(email, pass, btn, passEl);
             }
+            provLog('Sign-in refused', email, msg);
+            // An escape hatch, not a hole: local accounts only ever unlock local
+            // data, and anyone at this keyboard could clear the setting by hand.
+            authError(esc(msg) + '<br><br><a href="#" onclick="useLocalAccounts(); return false;" ' +
+                'style="color:var(--primary); font-size:0.82rem;">Sign in with this browser\'s local accounts instead</a>');
         });
     }
 
+    return signInLocally(email, pass, btn, passEl);
+}
+
+// Turns the backend off for this browser so the local registry is used again.
+// Needed when a backend is configured but the account that must fix it only
+// exists locally — otherwise the sign-in screen is a locked door with the key
+// behind it.
+function useLocalAccounts() {
+    if (typeof BiscsBackend !== 'undefined') BiscsBackend.saveConfig({ enabled: false });
+    authError('');
+    renderBackendSettings();
+    showToast('Backend turned off for this browser. Turn it back on in Settings → Backend.', 'info');
+}
+
+// The original gate: the account is checked here, against the registry in this
+// browser. Used when no backend is configured, and as the fallback when one is
+// configured but cannot be reached.
+function signInLocally(email, pass, btn, passEl) {
     const user = userByEmail(email);
     // The same message either way, so the form does not say which addresses exist.
     const refuse = (why) => {
