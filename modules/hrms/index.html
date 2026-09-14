@@ -515,6 +515,43 @@
         .home-stat .hg-lab { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
         .nav-item.nav-home { margin-bottom: 6px; }
 
+        /* Search, and the plain-words layer around it. Nothing here replaces the
+           menu; it sits beside it, for the far more common case of knowing what
+           you want and not where it lives. */
+        .nav-search-wrap { padding: 12px 14px 10px; }
+        .nav-search-wrap input { width: 100%; padding: 9px 12px; font-size: 0.85rem; border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); color: #e2e8f0; }
+        .nav-search-wrap input::placeholder { color: #7b8ca8; }
+        .nav-search-wrap input:focus { outline: none; border-color: var(--accent); background: rgba(255,255,255,0.1); }
+        #nav-search-results { padding: 0 8px 14px; }
+        .nav-hit { padding: 10px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 3px; }
+        .nav-hit:hover { background: rgba(255,255,255,0.08); }
+        .nh-name { color: #fff; font-size: 0.87rem; font-weight: 650; }
+        .nh-what { color: #90a4c0; font-size: 0.74rem; line-height: 1.45; margin-top: 2px; }
+        .nav-hit-none { color: #90a4c0; font-size: 0.8rem; padding: 12px; line-height: 1.6; }
+        .nav-hit-none em { color: #cbd5e1; font-style: normal; }
+
+        /* The "what is this screen for?" dot, and the line it opens. */
+        .help-dot { margin-left: 10px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border);
+            background: var(--bg-main); color: var(--text-muted); font-size: 0.78rem; font-weight: 700;
+            cursor: pointer; vertical-align: middle; line-height: 1; padding: 0; }
+        .help-dot:hover { border-color: var(--primary); color: var(--primary); }
+        .screen-help { background: #f0f9ff; border: 1px solid #bae6fd; color: #0c4a6e; border-radius: 10px;
+            padding: 12px 16px; margin-bottom: 16px; font-size: 0.87rem; line-height: 1.6; }
+
+        /* Browse everything, from Home. */
+        .home-search { width: 100%; max-width: 520px; padding: 11px 14px; font-size: 0.92rem;
+            border-radius: 10px; margin-bottom: 18px; }
+        .all-group { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px;
+            color: var(--text-muted); margin: 18px 0 8px; }
+        .all-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+        .all-item { text-align: left; background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 10px; padding: 13px 15px; cursor: pointer; font-family: inherit; transition: 0.14s; }
+        .all-item:hover { border-color: var(--primary); box-shadow: 0 6px 18px rgba(15,23,42,0.07); }
+        .ai-name { font-size: 0.92rem; font-weight: 700; color: var(--text-dark); }
+        .ai-what { font-size: 0.79rem; color: var(--text-muted); line-height: 1.5; margin-top: 3px; }
+        .ai-menu { font-size: 0.7rem; color: #94a3b8; margin-top: 7px; }
+
         /* The holiday add-row. This lives in a class rather than an inline style
            because the role gate resets inline display to '' when it shows an
            element, which would wipe a display:grid written on the tag itself. */
@@ -667,6 +704,12 @@
             BISCS <span>OS</span>
         </div>
         <a href="../../index.html" class="back-to-erp" id="back-to-erp" style="display:none;">← Back to MAX ERP</a>
+        <!-- Type what you want instead of knowing where it lives. -->
+        <div class="nav-search-wrap">
+            <input type="text" id="nav-search" placeholder="Search &mdash; try &quot;salary&quot;"
+                   oninput="onScreenSearch(this.value)" onkeydown="onScreenSearchKey(event)" autocomplete="off">
+        </div>
+        <div id="nav-search-results" style="display:none;"></div>
         <div class="nav-items" id="sidebar-nav">
 
             <div class="nav-item nav-home" data-role="admin manager employee" onclick="navigate('home')">&#127968; Home</div>
@@ -784,7 +827,7 @@
     <div class="main-content">
         <div class="topbar">
             <div>
-                <h2 id="topbar-title">Command Center</h2>
+                <h2 id="topbar-title">Command Center<button id="screen-help-btn" class="help-dot" title="What is this screen for?" onclick="toggleScreenHelp()">?</button></h2>
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;" id="topbar-subtitle">FY 2026-27 • New Tax Regime Default</div>
             </div>
             <div class="user-profile">
@@ -804,6 +847,7 @@
         </div>
 
         <div class="content-area">
+            <div id="screen-help" class="screen-help" style="display:none;"></div>
             <div class="access-banner" id="licence-banner"></div>
             <div id="urgent-notice-banner"></div>
 
@@ -1026,6 +1070,12 @@
                 <h3 class="home-h">What do you want to do?</h3>
                 <div id="home-actions" class="home-grid"></div>
                 <div id="home-glance"></div>
+                <h3 class="home-h">Everything else</h3>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin:-6px 0 12px;">
+                    Every screen you can open, in plain words. Type what you want, or just look down the list.</p>
+                <input type="text" id="home-search" class="home-search" placeholder="What are you looking for? Try &ldquo;payslip&rdquo;, &ldquo;leave&rdquo;, &ldquo;holiday&rdquo;&hellip;"
+                       oninput="renderAllScreens(this.value)" autocomplete="off">
+                <div id="home-all"></div>
             </section>
 
             <!-- 1. DASHBOARD -->
@@ -7759,6 +7809,7 @@ function navigate(viewId) {
     if (typeof event !== 'undefined' && event && event.currentTarget) event.currentTarget.classList.add('active');
 
     setTopbarTitle(viewId);
+    if (typeof renderScreenHelp === 'function') renderScreenHelp(viewId);
     if (typeof revealNavGroupFor === 'function') revealNavGroupFor(viewId);
     runViewHooks(viewId);
 }
@@ -7839,6 +7890,7 @@ function navigateProgrammatic(viewId) {
     const view = document.getElementById(`view-${viewId}`);
     if (view) view.classList.add('active');
     setTopbarTitle(viewId);
+    if (typeof renderScreenHelp === 'function') renderScreenHelp(viewId);
     if (typeof revealNavGroupFor === 'function') revealNavGroupFor(viewId);
     // Keep the sidebar highlight in sync when navigating without a click event.
     document.querySelectorAll('.nav-item').forEach(el => {
@@ -19421,7 +19473,286 @@ function applyAccessVisibility() {
     const sp = document.getElementById('nav-special-powers');
     if (sp && sp.style.display !== 'none' && !canAccessModule('attendance')) { sp.style.display = 'none'; sp.dataset.gatedOut = '1'; }
     if (typeof applyNavCollapsed === 'function') applyNavCollapsed();
+    // The menu just changed shape, so what search can offer has changed with it.
+    if (typeof buildScreenIndex === 'function') buildScreenIndex();
     renderLicenceBanner();
+}
+
+// ==========================================================================
+// THE GUIDE
+// Seventy screens named by the people who built them: "Universal Gateway",
+// "9-Box Succession", "DomeBox Sync". Every one earns its name once you know
+// the system -- and is useless to somebody who does not.
+//
+// So each screen gets a plain name, a sentence saying what it is for, and the
+// words somebody would actually type looking for it. Nothing is renamed and
+// nothing is hidden: this sits beside the real menu and answers the question
+// the real menu cannot, which is "where is the thing I want?".
+// ==========================================================================
+const GUIDE = {
+    home:              ['Home', 'Your starting point, with a button for each thing you do often.', 'start front main'],
+    'provider-companies': ['Companies', 'Add a company and choose which parts of the system it may use.', 'tenant licence client firm organisation'],
+    'provider-users':  ['Logins & access', 'Who can sign in, and which screens each of them sees.', 'user password permission account role staff login'],
+    'provider-modules':['What each part does', 'The list of every part of the system and what it is for.', 'module catalog feature list'],
+    'provider-log':    ['Setup history', 'A record of every company and login that was created or changed.', 'provisioning log history audit'],
+
+    dashboard:         ['Today at a glance', 'Headcount, who is in, and where payroll has got to.', 'command centre summary numbers overview'],
+    feed:              ['Notice board', 'Announcements everyone should read.', 'notice announcement news circular'],
+    notices:           ['Write a notice', 'Publish an announcement, and see who has read it.', 'announce circular publish holiday declare'],
+    orgchart:          ['Who reports to whom', 'The reporting tree, and who each person answers to.', 'hierarchy manager boss reporting structure team tree senior head'],
+
+    directory:         ['People', 'Everyone on the payroll. Open a person to see or change their details.', 'employee staff list master record directory worker person ctc structure', 8],
+    import:            ['Add people', 'Add one person, or bring in a whole list from a spreadsheet.', 'new joiner hire onboard excel csv bulk upload add employee recruit join', 8],
+    documents:         ['Documents', 'Files kept against a person, and documents sent for signature.', 'file upload esign certificate proof'],
+
+    recruitment:       ['Hiring', 'Open positions, applicants, and where each candidate has got to.', 'ats vacancy candidate interview job resume'],
+    journeys:          ['New joiner checklist', 'The steps a new person goes through on their first days.', 'onboarding induction joining checklist'],
+    probation:         ['Probation', 'Who is still on probation and when they are due to be confirmed.', 'confirm trial period permanent'],
+    letters:           ['Letters', 'Offer letters, appointment letters and experience certificates.', 'offer appointment experience certificate print document'],
+
+    attendance:        ['Live attendance', 'Punches as they come in, from every machine and phone.', 'gateway punch device biometric live in out'],
+    essl:              ['Get attendance from the machine', 'Pull punches from the eSSL machine, or upload the file it exports.', 'essl biometric import sync machine device xls punch download fingerprint', 8],
+    'attendance-register': ['Attendance register', 'Who was in, late or absent, day by day.', 'muster register monthly present absent late halfday attendance', 8],
+    'att-requests':    ['Attendance corrections', 'Requests to fix a missed punch or claim a day out of office.', 'regularise od missed punch correction'],
+    'special-powers':  ['Override attendance', 'Change a day by hand when nothing else fits. Locked by a passcode.', 'force manual override special'],
+    shifts:            ['Shifts', 'Who works which shift, and on which days.', 'roster duty timing night general rotation'],
+    timesheets:        ['Timesheets', 'Hours booked against projects.', 'project hours billable log time'],
+    leave:             ['Leave', 'Leave balances, requests and the rules behind them.', 'off casual sick earned cl sl el balance absence time-off', 8],
+
+    payroll:           ['Run salary', 'Work out this month’s pay, check it, then release the payslips.', 'salary pay people staff wages month process run bonus overtime ot arrear lop deduction net gross', 9],
+    payslips:          ['Payslips', 'Every payslip the system has produced.', 'payslip slip salary certificate download vault', 8],
+    revisions:         ['Salary changes', 'Increments and arrears, and when they take effect.', 'increment hike raise arrear revision'],
+    'comp-planning':   ['Increment planning', 'Plan next year’s increases before they are applied.', 'budget increment appraisal planning compensation'],
+    loans:             ['Loans and advances', 'Money lent to staff, and the instalments recovered from pay.', 'advance loan emi recovery instalment'],
+    expenses:          ['Expense claims', 'Bills staff have claimed back, and what was approved.', 'reimbursement reimburse bill claim expense voucher petty cash'],
+    travel:            ['Travel', 'Trip requests, approvals and what they cost.', 'tour trip ticket hotel travel'],
+    ewa:               ['Salary advance on demand', 'Letting staff draw part of what they have already earned.', 'earned wage access advance withdraw'],
+
+    compliance:        ['PF, ESI and tax rules', 'The statutory rates and limits everything else is calculated from.', 'pf esi pt tds statutory rate ceiling compliance gratuity bonus professional tax'],
+    form16:            ['Form 16 and tax', 'Income tax worked out per person, and the Form 16 at year end.', 'tds income tax form16 declaration investment'],
+    audit:             ['History of changes', 'Who changed what, and when.', 'audit trail log history who changed'],
+
+    performance:       ['Goals and reviews', 'Targets people are set, and how they were rated.', 'okr kra appraisal review rating goal'],
+    recognition:       ['Praise and feedback', 'Thank-yous, awards and notes people have left each other.', 'award reward kudos feedback praise'],
+    succession:        ['Who could step up', 'Who is ready for a bigger job, and who is at risk of leaving.', '9-box succession talent potential'],
+    engagement:        ['Staff surveys', 'Surveys asking people how things are going.', 'enps survey engagement mood pulse'],
+    offboarding:       ['People leaving', 'Resignations, notice periods, clearance and final settlement.', 'exit resign relieve settlement fnf clearance gratuity notice period quit leaving'],
+
+    'manager-inbox':   ['Approvals', 'Everything waiting for your yes or no.', 'approve reject pending inbox request'],
+    analytics:         ['Charts and trends', 'Headcount, attrition and cost, drawn as charts.', 'analytics chart graph trend attrition'],
+    reports:           ['Reports', 'Ready-made reports to open or download.', 'report export excel csv download register'],
+    assets:            ['Company property', 'Laptops, phones and tools issued to staff.', 'asset laptop equipment issue return inventory'],
+    helpdesk:          ['Helpdesk', 'Problems staff have raised, and who is fixing them.', 'ticket complaint issue support it'],
+    domebox:           ['DomeBox sync', 'Keeping employee records in step with the DomeBox system.', 'sync integration domebox'],
+    intelligence:      ['Who might leave', 'An estimate of who is most likely to resign soon.', 'attrition predict flight risk ai'],
+    whatsapp:          ['WhatsApp', 'Letting staff do things over WhatsApp instead of signing in.', 'whatsapp chat message mobile'],
+    settings:          ['Settings', 'The rules everything else follows — shifts, leave, salary, holidays.', 'setting configure rule policy setup holiday'],
+
+    'ess-profile':     ['My details', 'Your own record, documents and bank details.', 'profile my detail bank pan aadhaar'],
+    'ess-attendance':  ['My attendance', 'Your punches and your monthly summary.', 'my attendance punch present'],
+    'ess-att-requests':['Fix my attendance', 'Ask for a missed punch to be corrected, or claim a day out of office.', 'regularise od missed punch my'],
+    'ess-calendar':    ['My calendar', 'Your month, with holidays, leave and events.', 'calendar month holiday list my'],
+    'ess-requests':    ['My requests', 'Everything you have asked for, and where it has got to.', 'my request status pending'],
+    'ess-timesheets':  ['My timesheet', 'Book your hours against projects.', 'my hours timesheet project log'],
+    'ess-travel':      ['My travel', 'Ask to travel, and claim what it cost.', 'my trip tour travel'],
+    'ess-leaves':      ['My leave', 'Apply for time off and see what you have left.', 'apply leave holiday off my balance'],
+    'ess-expenses':    ['My expenses', 'Send a bill in to be paid back.', 'my claim bill reimbursement'],
+    'ess-benefits':    ['My insurance', 'Your medical cover and who else is covered.', 'gmc insurance mediclaim benefit family'],
+    'ess-performance': ['My goals', 'Your targets and your review.', 'my okr goal review appraisal'],
+    'ess-learning':    ['Courses', 'Training you can take, and what you have finished.', 'training course learn certificate'],
+    'ess-engagement':  ['Surveys', 'Surveys waiting for your answer.', 'survey enps feedback'],
+    'ess-helpdesk':    ['My tickets', 'Problems you have raised, and their status.', 'my ticket complaint support'],
+    'ess-payslips':    ['My payslips', 'Download any month’s payslip.', 'my payslip salary slip download'],
+    'ess-tax':         ['My tax declarations', 'Tell payroll about your investments so less tax is deducted.', 'investment 80c declaration tax saving hra'],
+    'ess-directory':   ['Colleagues', 'Find someone’s extension, email or department.', 'phone contact colleague directory find'],
+    'ess-engagement2': ['', '', '']
+};
+delete GUIDE['ess-engagement2'];
+
+
+// Where each screen sits, read from the menu itself so this can never drift
+// out of step with it: a screen added to the sidebar is findable that moment.
+var SCREEN_INDEX = null;
+function buildScreenIndex() {
+    SCREEN_INDEX = [];
+    const seen = {};
+    let group = '';
+    const nav = document.getElementById('sidebar-nav');
+    if (!nav) return;
+    Array.from(nav.children).forEach(el => {
+        if (el.classList.contains('nav-label')) { group = (el.textContent || '').replace(/[\u25BC\u25B6]/g, '').trim(); return; }
+        if (!el.classList.contains('nav-item')) return;
+        const m = (el.getAttribute('onclick') || '').match(/navigate\('([^']+)'\)/);
+        if (!m || seen[m[1]]) return;
+        seen[m[1]] = true;
+        const g = GUIDE[m[1]];
+        SCREEN_INDEX.push({
+            view: m[1],
+            group: group || 'General',
+            menu: (el.textContent || '').trim(),
+            name: g ? g[0] : (VIEW_TITLES[m[1]] || m[1]),
+            what: g ? g[1] : '',
+            words: g ? g[2] : '',
+            prio: g && g[3] ? g[3] : 0
+        });
+    });
+    // ...then the places inside Settings that people look for by name.
+    if (typeof canAccessView === 'function' && (function () { try { return roleMayOpen('settings'); } catch (e) { return false; } })()) {
+        SETTINGS_FINDABLE.forEach(x => {
+            SCREEN_INDEX.push({ view: 'settings', section: x[0], group: 'Settings',
+                menu: '\u2699\ufe0f Settings \u2192 ' + x[1],
+                name: x[1], what: x[2], words: x[3], prio: x[4] || 0 });
+        });
+    }
+}
+// Some of the most-wanted things are not screens at all -- the holiday list,
+// the eSSL connection, the leave rules all live inside Settings. Somebody
+// looking for "holiday" means the holiday list, not the Settings tile, so the
+// sections are indexed as destinations of their own.
+const SETTINGS_FINDABLE = [
+    ['holidays',   'Holiday list',      'The days the office is closed. Paid, and not taken off anyone\u2019s leave.', 'holiday list festival puja closed off day declare calendar', 9],
+    ['payroll',    'Salary structure',  'How a salary is split into basic, HRA and the rest, and the formulas behind it.', 'ctc structure basic hra allowance formula component salary breakup'],
+    ['attendance', 'Attendance rules',  'Shift timing, grace minutes, overtime and geo-fencing.', 'shift timing grace late overtime geofence policy rule'],
+    ['leave',      'Leave rules',       'How much leave each type gives, and how it builds up.', 'leave policy entitlement accrual carry forward rule'],
+    ['devices',    'eSSL setup',        'The connection to the attendance machine, and which device number is whose.', 'essl device machine biometric mysql connection mapping setup'],
+    ['expenses',   'Expense limits',    'What can be claimed, and up to how much.', 'expense limit cap policy claim'],
+    ['approvals',  'Approval chains',   'Who signs off what, and what happens if they do not.', 'approval workflow chain sla escalation approves'],
+    ['security',   'Password & locks',  'Your own password, and the locks on the sensitive screens.', 'password change security lock passcode'],
+    ['backend',    'Database',          'Where the data is kept.', 'supabase backend database connection server']
+];
+
+function guideFor(viewId) {
+    const g = GUIDE[viewId];
+    return g ? { name: g[0], what: g[1] } : null;
+}
+// Only what this account can actually open. Offering a door that then refuses
+// you is worse than not offering it.
+function openableScreens() {
+    if (!SCREEN_INDEX) buildScreenIndex();
+    return SCREEN_INDEX.filter(s => {
+        try { return roleMayOpen(s.view) && canAccessView(s.view); } catch (e) { return false; }
+    });
+}
+
+// Deliberately forgiving. Somebody looking for the payslip screen might type
+// "payslip", "salary slip", "pay slip" or "Payroll" -- all four should work,
+// so the menu label, the plain name and a list of everyday words are all
+// searched, and a match anywhere counts.
+// People type sentences, not keywords: "where do I see who is my boss". The
+// filler words carry no meaning and would sink the query if every word had to
+// match, so they are dropped, and a query that matches nothing outright is
+// tried again with any-word matching before giving up.
+const SEARCH_STOPWORDS = (' a an the my me i is are was do want where how to of for in on at and or ' +
+    'can see view show find open go our their his her who what which new ').trim().split(/\s+/);
+function scoreScreen(s, terms, requireAll) {
+    const name = s.name.toLowerCase(), menu = s.menu.toLowerCase();
+    const hay = (name + ' ' + menu + ' ' + s.what + ' ' + s.words + ' ' + s.group).toLowerCase();
+    let score = 0, missed = false;
+    terms.forEach(t => {
+        if (hay.indexOf(t) === -1) { missed = true; return; }
+        if (name.indexOf(t) === 0) score += 6;             // starts the plain name
+        else if (name.indexOf(t) !== -1) score += 4;
+        else if (menu.indexOf(t) !== -1) score += 3;
+        else if ((' ' + s.words + ' ').indexOf(' ' + t) !== -1) score += 2;
+        else score += 1;
+    });
+    if (requireAll && missed) return 0;
+    if (!score) return 0;
+    // A tie between "Run salary" and "Salary changes" goes to the one somebody
+    // typing "salary" almost certainly meant.
+    return score * 10 + (s.prio || 0) * 3;
+}
+function searchScreens(q) {
+    q = String(q || '').trim().toLowerCase();
+    if (!q) return [];
+    let terms = q.split(/\s+/).filter(t => t && SEARCH_STOPWORDS.indexOf(t) === -1);
+    if (!terms.length) terms = q.split(/\s+/);
+    const pool = openableScreens();
+    const run = (all) => pool.map(s => ({ s: s, score: scoreScreen(s, terms, all) }))
+        .filter(r => r.score > 0).sort((a, b) => b.score - a.score).map(r => r.s);
+    const strict = run(true);
+    return strict.length ? strict : run(false);
+}
+
+// --- the search box in the sidebar ---------------------------------------
+function onScreenSearch(q) {
+    const box = document.getElementById('nav-search-results');
+    const nav = document.getElementById('sidebar-nav');
+    if (!box || !nav) return;
+    const hits = searchScreens(q);
+    if (!String(q || '').trim()) { box.style.display = 'none'; box.innerHTML = ''; nav.style.display = ''; return; }
+    nav.style.display = 'none';
+    box.style.display = 'block';
+    box.innerHTML = hits.length
+        ? hits.slice(0, 12).map(h => '<div class="nav-hit" onclick="gotoScreen(\'' + h.view + '\'' +
+            (h.section ? ", '" + h.section + "'" : '') + ')">' +
+            '<div class="nh-name">' + esc(h.name) + '</div>' +
+            '<div class="nh-what">' + esc(h.what || h.menu) + '</div></div>').join('')
+        : '<div class="nav-hit-none">Nothing matches \u201c' + esc(q) + '\u201d.<br>' +
+          'Try a word like <em>salary</em>, <em>leave</em>, <em>attendance</em> or <em>holiday</em>.</div>';
+}
+function gotoScreen(viewId, section) {
+    clearScreenSearch();
+    if (section && typeof openSettings === 'function') return openSettings(section);
+    navigate(viewId);
+}
+function clearScreenSearch() {
+    const i = document.getElementById('nav-search');
+    if (i) i.value = '';
+    onScreenSearch('');
+}
+function onScreenSearchKey(ev) {
+    if (ev.key === 'Escape') return clearScreenSearch();
+    if (ev.key !== 'Enter') return;
+    const first = searchScreens(ev.target.value)[0];
+    if (first) gotoScreen(first.view, first.section);
+}
+
+// --- browse everything, from Home ----------------------------------------
+function renderAllScreens(q) {
+    const wrap = document.getElementById('home-all');
+    if (!wrap) return;
+    const list = String(q || '').trim() ? searchScreens(q) : openableScreens();
+    if (!list.length) {
+        wrap.innerHTML = '<div class="card" style="font-size:0.86rem; color:var(--text-muted);">' +
+            'Nothing matches that. Try <em>salary</em>, <em>leave</em>, <em>attendance</em> or <em>holiday</em>.</div>';
+        return;
+    }
+    const groups = [];
+    list.forEach(s => { if (groups.indexOf(s.group) === -1) groups.push(s.group); });
+    wrap.innerHTML = groups.map(g =>
+        '<div class="all-group">' + esc(g) + '</div><div class="all-grid">' +
+        list.filter(s => s.group === g).map(s =>
+            '<button class="all-item" onclick="gotoScreen(\'' + s.view + '\'' +
+                (s.section ? ", '" + s.section + "'" : '') + ')">' +
+            '<div class="ai-name">' + esc(s.name) + '</div>' +
+            '<div class="ai-what">' + esc(s.what) + '</div>' +
+            '<div class="ai-menu">in the menu: ' + esc(s.menu) + '</div></button>').join('') +
+        '</div>').join('');
+}
+
+// --- "what is this screen for?" ------------------------------------------
+// On every screen, in the same place, in the same words as the search results.
+var screenHelpOpen = false;
+function toggleScreenHelp() {
+    screenHelpOpen = !screenHelpOpen;
+    renderScreenHelp(currentScreenId());
+}
+function currentScreenId() {
+    const el = document.querySelector('.view-section.active');
+    return el ? el.id.replace(/^view-/, '') : '';
+}
+function renderScreenHelp(viewId) {
+    const bar = document.getElementById('screen-help');
+    const btn = document.getElementById('screen-help-btn');
+    if (!bar) return;
+    const g = guideFor(viewId);
+    if (btn) btn.style.display = g ? '' : 'none';
+    if (!g || !screenHelpOpen) { bar.style.display = 'none'; return; }
+    bar.style.display = 'block';
+    bar.innerHTML = '<strong>' + esc(g.name) + '</strong> \u2014 ' + esc(g.what) +
+        ' <button class="btn btn-outline" style="padding:2px 9px; font-size:0.72rem; margin-left:8px;" ' +
+        'onclick="toggleScreenHelp()">Got it</button>';
 }
 
 // The landing screen is the first thing this account can actually open.
@@ -19563,6 +19894,10 @@ function renderHome() {
             '<p>' + esc(a.blurb) + '</p></button>').join('')
             : '<div class="card">Nothing has been switched on for your account yet. Ask your HR administrator.</div>';
     }
+
+    // Every screen this account can open, in plain words.
+    const hs = document.getElementById('home-search');
+    renderAllScreens(hs ? hs.value : '');
 
     // A few numbers, only for the people whose job they are.
     const glance = document.getElementById('home-glance');
