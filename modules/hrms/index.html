@@ -515,6 +515,15 @@
         .home-stat .hg-lab { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
         .nav-item.nav-home { margin-bottom: 6px; }
 
+        /* The holiday add-row. This lives in a class rather than an inline style
+           because the role gate resets inline display to '' when it shows an
+           element, which would wipe a display:grid written on the tag itself. */
+        .hol-form { display: grid; grid-template-columns: 160px 1fr 150px auto; gap: 10px; align-items: end;
+            background: var(--bg-main); border: 1px solid var(--border); border-radius: 10px;
+            padding: 14px; margin-bottom: 16px; }
+        .hol-form label { margin-bottom: 4px; }
+        @media (max-width: 760px) { .hol-form { grid-template-columns: 1fr; } }
+
         /* A short, plain explanation at the top of a screen whose sequence is not
            obvious the first time. Not a tooltip: the question "now what?" needs
            answering where the work happens. */
@@ -1375,6 +1384,43 @@
                 </div>
 
                 <div class="stat-strip" id="attendance-snapshot-gateway"></div>
+
+                <div class="card" data-setting="holidays" data-setting-title="Holiday list">
+                    <div class="card-header">
+                        <h3>&#127881; Holiday list <span id="hol-year-badge" class="badge badge-neutral"></span></h3>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;" data-role="admin">
+                            <select id="hol-year" onchange="renderHolidays()" style="width:auto; padding:4px 8px; font-size:0.78rem;"></select>
+                            <button class="btn btn-outline" style="padding:4px 10px; font-size:0.75rem;" onclick="addFixedNationalHolidays()">Add the fixed national days</button>
+                            <button class="btn btn-outline" style="padding:4px 10px; font-size:0.75rem;" onclick="exportHolidays()">&#11015;&#65039; CSV</button>
+                        </div>
+                    </div>
+                    <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:14px;">
+                        A declared holiday is a paid day nobody is marked absent for. Payroll counts it as payable,
+                        leave taken across it is not charged, and anybody who does work gets a comp-off rather than
+                        a duty day. So this list is not decoration &mdash; it changes what people are paid.</p>
+                    <div class="hol-form" data-role="admin">
+                        <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Date</label>
+                            <input type="date" id="hol-date" onchange="onHolidayDateChange()"></div>
+                        <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">What is it called</label>
+                            <input type="text" id="hol-name" placeholder="e.g. Bengali New Year" onkeydown="if(event.key==='Enter')addHoliday();"></div>
+                        <div><label style="display:block; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:4px;">Type</label>
+                            <select id="hol-type">
+                                <option value="National">National</option>
+                                <option value="Festival">Festival</option>
+                                <option value="State">State</option>
+                                <option value="Company">Company</option>
+                            </select></div>
+                        <div><button class="btn btn-primary" style="padding:9px 16px;" onclick="addHoliday()">Add holiday</button></div>
+                    </div>
+                    <div id="hol-warn" style="font-size:0.82rem; margin-bottom:12px;"></div>
+                    <div style="overflow-x:auto;">
+                        <table>
+                            <thead><tr><th>Date</th><th>Day</th><th>Holiday</th><th>Type</th><th></th></tr></thead>
+                            <tbody id="hol-table"></tbody>
+                        </table>
+                    </div>
+                    <div id="hol-summary" style="font-size:0.8rem; color:var(--text-muted); margin-top:12px; line-height:1.6;"></div>
+                </div>
 
                 <div class="card" data-setting="attendance" data-setting-title="Attendance policy">
                     <div class="card-header"><h3>Attendance Policy</h3><button class="btn btn-outline" style="padding:4px 10px; font-size:0.75rem;" onclick="editAttendancePolicy()">Edit Policy</button></div>
@@ -3128,6 +3174,16 @@
                     <div class="card"><div style="font-size: 0.8rem; color: var(--secondary); text-transform: uppercase;">Leave / Absent</div><div class="stat-value" style="color: var(--danger)" id="ess-cal-absent">--</div></div>
                     <div class="card"><div style="font-size: 0.8rem; color: var(--secondary); text-transform: uppercase;">Holidays &amp; Offs</div><div class="stat-value" style="color: var(--warning)" id="ess-cal-off">--</div></div>
                 </div>
+                <div class="card">
+                    <div class="card-header"><h3>&#127881; Holiday list</h3>
+                        <button class="btn btn-outline" style="padding:4px 10px; font-size:0.75rem;" onclick="exportHolidays()">&#11015;&#65039; CSV</button></div>
+                    <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:12px;">
+                        The days the office is closed. You are paid for these and they are not taken off your leave.</p>
+                    <div style="overflow-x:auto;">
+                        <table><thead><tr><th>Date</th><th>Day</th><th>Holiday</th><th>Type</th></tr></thead>
+                        <tbody id="ess-holiday-table"></tbody></table>
+                    </div>
+                </div>
             </section>
 
             <!-- ESS MY REQUESTS -->
@@ -4455,10 +4511,10 @@ const ATTENDANCE_STATES = [
 // Company calendar source data.
 var companyCalendar = {
     holidays: [
-        { date: '2026-04-01', name: 'Annual Closing' },
-        { date: '2026-04-14', name: 'Bengali New Year' },
-        { date: '2026-04-17', name: 'Public Holiday' },
-        { date: '2026-05-01', name: 'May Day' }
+        { date: '2026-04-01', name: 'Annual Closing', type: 'Company' },
+        { date: '2026-04-14', name: 'Bengali New Year', type: 'State' },
+        { date: '2026-04-17', name: 'Public Holiday', type: 'State' },
+        { date: '2026-05-01', name: 'May Day', type: 'National' }
     ],
     events: [
         { date: '2026-04-20', name: 'Quarterly Town Hall' },
@@ -4842,6 +4898,219 @@ var attendanceExceptions = {
 
 function isWeekOff(dateObj) { return STAT_CONFIG.workWeek.weekOffDays.indexOf(dateObj.getDay()) !== -1; }
 function isHolidayIso(iso) { return companyCalendar.holidays.some(h => h.date === iso); }
+function holidayOn(iso) { return companyCalendar.holidays.find(h => h.date === iso) || null; }
+
+// ==========================================================================
+// HOLIDAY LIST
+// The list was already being read by payroll, leave, comp-off and duty claims
+// -- it just had no way in but editing the file. Everything below is the way in.
+//
+// A holiday is not a note on a calendar. Declaring one makes the day payable
+// without attendance, stops leave being charged across it, and turns work done
+// on it into a comp-off rather than a duty day. Removing one does the reverse.
+// ==========================================================================
+
+// The financial year a date belongs to, as an April-March window.
+function fyOfIso(iso) {
+    const y = parseInt(iso.slice(0, 4), 10), m = parseInt(iso.slice(5, 7), 10);
+    const start = m >= (STAT_CONFIG.fy.startMonth || 4) ? y : y - 1;
+    return { start: start, label: 'FY ' + start + '-' + String((start + 1) % 100).padStart(2, '0') };
+}
+function holidayFYs() {
+    const set = {};
+    companyCalendar.holidays.forEach(h => { set[fyOfIso(h.date).start] = true; });
+    set[fyOfIso(DEMO_TODAY).start] = true;           // always offer the current year
+    return Object.keys(set).map(Number).sort((a, b) => b - a);
+}
+var holidayYear = null;
+
+function holidaysInFY(startYear) {
+    return companyCalendar.holidays
+        .filter(h => fyOfIso(h.date).start === startYear)
+        .slice().sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Saying "that is a Sunday" before the click beats a support call after it.
+function onHolidayDateChange() {
+    const el = document.getElementById('hol-date'), warn = document.getElementById('hol-warn');
+    if (!el || !warn) return;
+    const iso = el.value;
+    if (!iso) { warn.innerHTML = ''; return; }
+    const msgs = [];
+    const clash = holidayOn(iso);
+    if (clash) msgs.push(['danger', prettyDate(iso) + ' is already <strong>' + esc(clash.name) + '</strong>.']);
+    if (isWeekOff(parseIso(iso)))
+        msgs.push(['warn', prettyDate(iso) + ' is a ' + DOW_NAMES[parseIso(iso).getDay()] +
+            ', already a week off. Declaring it changes nothing for anybody\u2019s pay.']);
+    const period = iso.slice(0, 7);
+    const run = payrollPeriods[period];
+    if (run && run.status === 'Executed')
+        msgs.push(['danger', 'Payroll for ' + period + ' has already been executed. Adding a holiday now will not ' +
+            'change payslips that are out \u2014 it will only affect anything re-run.']);
+    warn.innerHTML = msgs.map(m => '<div style="padding:9px 12px; border-radius:8px; margin-bottom:6px; ' +
+        (m[0] === 'danger' ? 'background:#fef2f2; border:1px solid #fecaca; color:#b91c1c;'
+                           : 'background:#fffbeb; border:1px solid #fde68a; color:#92400e;') + '">' + m[1] + '</div>').join('');
+}
+
+function addHoliday() {
+    const dEl = document.getElementById('hol-date'), nEl = document.getElementById('hol-name'),
+          tEl = document.getElementById('hol-type');
+    const iso = (dEl || {}).value || '', name = String((nEl || {}).value || '').trim();
+    if (!iso) return showToast('Pick the date first.', 'error');
+    if (!name) return showToast('Give the holiday a name, so the calendar says what it is.', 'error');
+    if (holidayOn(iso)) return showToast(prettyDate(iso) + ' is already a declared holiday.', 'error');
+    const period = iso.slice(0, 7), run = payrollPeriods[period];
+    if (run && run.status === 'Executed' &&
+        !confirm('Payroll for ' + period + ' has already been executed.\n\nAdding this holiday will not change ' +
+                 'payslips that are already out. Add it anyway?')) return;
+    companyCalendar.holidays.push({ date: iso, name: name, type: (tEl || {}).value || 'Company' });
+    if (nEl) nEl.value = '';
+    if (dEl) dEl.value = '';
+    const warn = document.getElementById('hol-warn'); if (warn) warn.innerHTML = '';
+    holidayYear = fyOfIso(iso).start;
+    afterHolidayChange('Holiday added', prettyDate(iso) + ' \u00b7 ' + name);
+    showToast(name + ' added on ' + prettyDate(iso) + '.', 'success');
+}
+
+function removeHoliday(iso) {
+    const h = holidayOn(iso);
+    if (!h) return;
+    const period = iso.slice(0, 7), run = payrollPeriods[period];
+    const extra = (run && run.status === 'Executed')
+        ? '\n\nPayroll for ' + period + ' is already executed; payslips that are out will not change.' : '';
+    if (!confirm('Remove ' + h.name + ' on ' + prettyDate(iso) + '?\n\n' +
+                 'That day becomes an ordinary working day: anybody with no punch and no leave on it ' +
+                 'will be absent.' + extra)) return;
+    companyCalendar.holidays = companyCalendar.holidays.filter(x => x.date !== iso);
+    afterHolidayChange('Holiday removed', prettyDate(iso) + ' \u00b7 ' + h.name);
+    showToast(h.name + ' removed.', 'success');
+}
+
+function renameHoliday(iso) {
+    const h = holidayOn(iso);
+    if (!h) return;
+    const name = prompt('What is this holiday called?', h.name);
+    if (name === null) return;
+    if (!String(name).trim()) return showToast('The holiday needs a name.', 'error');
+    h.name = String(name).trim();
+    afterHolidayChange('Holiday renamed', prettyDate(iso) + ' \u00b7 ' + h.name);
+}
+
+// One place for everything a change to the list has to touch, so a new caller
+// cannot forget half of it and leave the calendar and the muster disagreeing.
+function afterHolidayChange(event, detail) {
+    companyCalendar.holidays.sort((a, b) => a.date.localeCompare(b.date));
+    audit(event, detail, 'Attendance');
+    saveState(true);
+    renderHolidays();
+    if (typeof renderCalendar === 'function') { try { renderCalendar('company'); } catch (e) {} }
+    if (typeof refreshEverything === 'function') { try { refreshEverything(); } catch (e) {} }
+}
+
+// The days that are the same every year under the holiday Acts. Festival dates
+// move with the lunar calendar and are not guessed here: somebody has to read
+// them off the state gazette and type them in, and a wrong festival date is a
+// wrong payslip.
+const FIXED_NATIONAL_HOLIDAYS = [
+    { md: '01-26', name: 'Republic Day', type: 'National' },
+    { md: '05-01', name: 'May Day', type: 'National' },
+    { md: '08-15', name: 'Independence Day', type: 'National' },
+    { md: '10-02', name: 'Gandhi Jayanti', type: 'National' },
+    { md: '12-25', name: 'Christmas Day', type: 'National' }
+];
+function addFixedNationalHolidays() {
+    const fy = holidayYear === null ? fyOfIso(DEMO_TODAY).start : holidayYear;
+    const added = [];
+    FIXED_NATIONAL_HOLIDAYS.forEach(h => {
+        // April-March, so Jan to Mar fall in the second calendar year.
+        const month = parseInt(h.md.slice(0, 2), 10);
+        const iso = (month >= (STAT_CONFIG.fy.startMonth || 4) ? fy : fy + 1) + '-' + h.md;
+        if (holidayOn(iso)) return;
+        companyCalendar.holidays.push({ date: iso, name: h.name, type: h.type });
+        added.push(h.name);
+    });
+    if (!added.length) return showToast('Those are all on the list already.', 'info');
+    afterHolidayChange('Holidays added', added.length + ' fixed national days');
+    showToast('Added ' + added.join(', ') + '. Festival dates still have to be added by hand \u2014 ' +
+        'they move every year.', 'success');
+}
+
+function exportHolidays() {
+    const fy = holidayYear === null ? fyOfIso(DEMO_TODAY).start : holidayYear;
+    const rows = [['Holiday List', 'FY ' + fy + '-' + String((fy + 1) % 100).padStart(2, '0')], []];
+    rows.push(['Date', 'Day', 'Holiday', 'Type']);
+    holidaysInFY(fy).forEach(h => rows.push([h.date, DOW_NAMES[parseIso(h.date).getDay()], h.name, h.type || 'Company']));
+    downloadRows('Holiday_List_FY' + fy + '.csv', rows);
+    showToast('Holiday list exported.', 'success');
+}
+
+// The same list, read-only, for the person whose days off they are.
+function renderEmployeeHolidays() {
+    const tb = document.getElementById('ess-holiday-table');
+    if (!tb) return;
+    const fy = fyOfIso(DEMO_TODAY).start;
+    const rows = holidaysInFY(fy);
+    tb.innerHTML = rows.length ? rows.map(h => {
+        const d = parseIso(h.date), past = h.date < DEMO_TODAY;
+        return '<tr' + (past ? ' style="opacity:0.55;"' : '') + '>' +
+            '<td><strong>' + esc(prettyDate(h.date)) + '</strong></td>' +
+            '<td>' + DOW_NAMES[d.getDay()] + '</td>' +
+            '<td>' + esc(h.name) + (past ? '' : ' <span class="badge badge-success" style="text-transform:none;">coming up</span>') + '</td>' +
+            '<td>' + esc(h.type || 'Company') + '</td></tr>';
+    }).join('')
+    : '<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">' +
+      'No holidays published for this year yet.</td></tr>';
+}
+
+function renderHolidays() {
+    const sel = document.getElementById('hol-year');
+    const years = holidayFYs();
+    if (holidayYear === null || years.indexOf(holidayYear) === -1) holidayYear = years[0];
+    if (sel) {
+        if (sel.value && years.indexOf(Number(sel.value)) !== -1 && Number(sel.value) !== holidayYear && document.activeElement === sel)
+            holidayYear = Number(sel.value);
+        sel.innerHTML = years.map(y => '<option value="' + y + '"' + (y === holidayYear ? ' selected' : '') + '>FY ' +
+            y + '-' + String((y + 1) % 100).padStart(2, '0') + '</option>').join('');
+        sel.value = String(holidayYear);
+    }
+    const rows = holidaysInFY(holidayYear);
+    const badge = document.getElementById('hol-year-badge');
+    if (badge) badge.innerText = rows.length + (rows.length === 1 ? ' day' : ' days');
+
+    const tb = document.getElementById('hol-table');
+    if (tb) {
+        tb.innerHTML = rows.length ? rows.map(h => {
+            const d = parseIso(h.date), off = isWeekOff(d), past = h.date < DEMO_TODAY;
+            return '<tr' + (past ? ' style="opacity:0.6;"' : '') + '>' +
+                '<td><strong>' + esc(prettyDate(h.date)) + '</strong></td>' +
+                '<td>' + DOW_NAMES[d.getDay()] +
+                    (off ? ' <span class="badge badge-neutral" style="text-transform:none;">already a week off</span>' : '') + '</td>' +
+                '<td>' + esc(h.name) + '</td>' +
+                '<td><span class="badge ' + (h.type === 'National' ? 'badge-info' : 'badge-neutral') +
+                    '" style="text-transform:none;">' + esc(h.type || 'Company') + '</span></td>' +
+                '<td style="text-align:right; white-space:nowrap;" data-role="admin">' +
+                    '<button class="btn btn-outline" style="padding:3px 9px; font-size:0.72rem;" onclick="renameHoliday(\'' + h.date + '\')">Rename</button> ' +
+                    '<button class="btn btn-outline" style="padding:3px 9px; font-size:0.72rem; color:var(--danger); border-color:#fecaca;" onclick="removeHoliday(\'' + h.date + '\')">Remove</button>' +
+                '</td></tr>';
+        }).join('')
+        : '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:22px;">' +
+          'No holidays declared for this year yet. Add them above, or start with the fixed national days.</td></tr>';
+    }
+
+    const sum = document.getElementById('hol-summary');
+    if (sum) {
+        const wasted = rows.filter(h => isWeekOff(parseIso(h.date))).length;
+        const left = rows.filter(h => h.date >= DEMO_TODAY).length;
+        sum.innerHTML = rows.length
+            ? rows.length + ' declared \u00b7 ' + left + ' still to come' +
+              (wasted ? ' \u00b7 <strong>' + wasted + '</strong> fall on a week off and so cost nothing' : '') +
+              '<br>Week offs are ' + STAT_CONFIG.workWeek.weekOffDays.map(d => DOW_NAMES[d]).join(' and ') +
+              '. Those are separate from this list and need no declaring.'
+            : '';
+    }
+    if (typeof applyRoleVisibility === 'function') applyRoleVisibility();
+}
+
 function parseIso(iso) { const p = iso.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
 
 // Working days in a leave span, excluding week offs and declared holidays.
@@ -7625,7 +7894,7 @@ function runViewHooks(viewId) {
     if (viewId === 'notices') renderNoticeAdmin();
     if (viewId === 'workflows') { renderWorkflowConfig(); renderWorkflowRegister(); }
     if (viewId === 'ess-requests') renderMyRequests();
-    if (viewId === 'ess-calendar') renderCalendar('ess');
+    if (viewId === 'ess-calendar') { renderCalendar('ess'); renderEmployeeHolidays(); }
     if (viewId === 'ess-attendance') { renderESSAttendance(); renderESSAttendanceSummary(); renderCompOff(); }
     if (viewId === 'ess-leaves') renderESSLeaves();
     if (viewId === 'ess-expenses') renderESSExpenses();
@@ -17244,6 +17513,8 @@ const SETTINGS_SECTIONS = [
       blurb: 'The salary structure every onboarding preview and payroll run is built from.' },
     { key: 'attendance', name: 'Attendance',      icon: '\u{23F1}️', module: 'attendance',
       blurb: 'Shift timing, grace, overtime, geo-fencing, and the rules attendance requests are judged by.' },
+    { key: 'holidays',   name: 'Holidays',        icon: '\u{1F389}', module: 'core-hr',
+      blurb: 'The days the company is closed. Paid, not charged to leave, and counted as payable in payroll.' },
     { key: 'leave',      name: 'Leave',           icon: '\u{1F334}', module: 'leave',
       blurb: 'Entitlement, accrual, eligibility and year-end handling per leave type.' },
     { key: 'expenses',   name: 'Expenses',        icon: '\u{1F9FE}', module: 'expenses',
@@ -17392,6 +17663,7 @@ function renderSettingsView() {
         org: () => { renderSettingsEstablishment(); },
         payroll: () => { if (typeof renderCTCConfig === 'function') renderCTCConfig(); renderFormulaSetup(); },
         attendance: () => { renderAttendancePolicy(); renderGeoFences(); if (typeof renderAttReqRules === 'function') renderAttReqRules(); else if (typeof renderAttendanceRequests === 'function') renderAttendanceRequests(); },
+        holidays: () => { renderHolidays(); },
         leave: () => { if (typeof renderLeaveRuleSet === 'function') renderLeaveRuleSet(); },
         expenses: () => { if (typeof renderExpensePolicy === 'function') renderExpensePolicy(); },
         approvals: () => { renderWorkflowConfig(); renderWorkflowRegister(); },
