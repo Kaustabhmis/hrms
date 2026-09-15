@@ -8,10 +8,10 @@
 with checks as (
     select 1 as ord, 'Tables' as what,
            (select count(*)::text from information_schema.tables where table_schema='public') as found,
-           '27' as expected
+           '29' as expected
     union all
     select 2, 'Row-level security policies',
-           (select count(*)::text from pg_policies where schemaname='public'), '67'
+           (select count(*)::text from pg_policies where schemaname='public'), '76'
     union all
     select 3, 'Modules in the catalog',
            (select count(*)::text from modules), '30'
