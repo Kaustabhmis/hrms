@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>BISCS &mdash; My Work</title>
+<style>
+/* ==========================================================================
+   BISCS employee app
+   Phone first, and phone only: thumb-sized targets, one thing per screen, and
+   nothing an employee is not entitled to. Everything here is their own data;
+   the database refuses anything else regardless of what this page asks for.
+   ========================================================================== */
+:root {
+    --bg: #f1f5f9; --card: #ffffff; --ink: #0f172a; --muted: #64748b;
+    --line: #e2e8f0; --brand: #2563eb; --brand-dark: #1d4ed8;
+    --ok: #16a34a; --warn: #f59e0b; --bad: #dc2626; --leave: #8b5cf6;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-t: env(safe-area-inset-top, 0px);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent;
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+html, body { height: 100%; overscroll-behavior-y: none; }
+body { background: var(--bg); color: var(--ink); font-size: 15px; line-height: 1.5; }
+button, input, select, textarea { font-size: 16px; font-family: inherit; }  /* 16px stops iOS zooming on focus */
+
+/* ---------- sign in ---------- */
+#gate { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column;
+    justify-content: center; padding: 28px 24px calc(28px + var(--safe-b));
+    background: linear-gradient(160deg, #0f172a 0%, #172554 60%, #1e1b4b 100%); color: #fff; }
+.g-mark { width: 54px; height: 54px; border-radius: 15px; margin-bottom: 20px;
+    background: linear-gradient(140deg, #38bdf8, #2563eb); box-shadow: 0 10px 28px rgba(37,99,235,0.45); }
+.g-title { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.5px; }
+.g-sub { color: #94a3b8; font-size: 0.95rem; margin: 6px 0 28px; }
+#gate label { display: block; font-size: 0.82rem; color: #cbd5e1; margin-bottom: 6px; font-weight: 600; }
+#gate input { width: 100%; padding: 14px; border-radius: 12px; margin-bottom: 16px; color: #fff;
+    border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.07); }
+#gate input::placeholder { color: #64748b; }
+#gate input:focus { outline: none; border-color: #38bdf8; background: rgba(255,255,255,0.11); }
+.g-btn { width: 100%; padding: 15px; border: none; border-radius: 12px; background: var(--brand);
+    color: #fff; font-weight: 700; font-size: 1rem; }
+.g-btn:disabled { opacity: 0.6; }
+.g-err { background: rgba(220,38,38,0.16); border: 1px solid rgba(248,113,113,0.4); color: #fecaca;
+    border-radius: 10px; padding: 11px 13px; font-size: 0.87rem; margin-bottom: 16px; display: none; }
+.g-foot { color: #64748b; font-size: 0.78rem; margin-top: 26px; text-align: center; }
+
+/* ---------- shell ---------- */
+#app { display: none; flex-direction: column; height: 100%; }
+.top { background: #0f172a; color: #fff; padding: calc(12px + var(--safe-t)) 18px 14px;
+    display: flex; align-items: center; gap: 12px; flex: none; }
+.top .av { width: 40px; height: 40px; border-radius: 50%; background: var(--brand); flex: none;
+    display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.top .nm { font-weight: 700; font-size: 1rem; line-height: 1.25; }
+.top .sb { font-size: 0.75rem; color: #94a3b8; }
+.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: 16px 16px calc(84px + var(--safe-b)); }
+.page { display: none; }
+.page.on { display: block; animation: fade 0.18s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ---------- bottom bar ---------- */
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex;
+    background: var(--card); border-top: 1px solid var(--line);
+    padding-bottom: var(--safe-b); box-shadow: 0 -2px 16px rgba(15,23,42,0.06); }
+.tab { flex: 1; border: none; background: none; padding: 9px 2px 8px; color: var(--muted);
+    display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 0.66rem; font-weight: 600; }
+.tab .ic { font-size: 1.25rem; line-height: 1; }
+.tab.on { color: var(--brand); }
+.tab .badge { position: absolute; transform: translate(14px, -4px); background: var(--bad); color: #fff;
+    border-radius: 9px; font-size: 0.6rem; padding: 1px 5px; font-weight: 700; }
+
+/* ---------- pieces ---------- */
+.card { background: var(--card); border-radius: 14px; padding: 16px; margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.06); }
+.card h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 10px; }
+.muted { color: var(--muted); font-size: 0.83rem; }
+.sec { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px;
+    color: var(--muted); margin: 18px 0 8px; }
+.row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0;
+    border-bottom: 1px solid var(--line); font-size: 0.89rem; }
+.row:last-child { border-bottom: none; }
+.row .k { color: var(--muted); flex: none; }
+.row .v { text-align: right; font-weight: 600; word-break: break-word; }
+.pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+.p-ok { background: #dcfce7; color: #166534; }
+.p-warn { background: #fef3c7; color: #92400e; }
+.p-bad { background: #fee2e2; color: #991b1b; }
+.p-info { background: #dbeafe; color: #1e40af; }
+.p-leave { background: #ede9fe; color: #5b21b6; }
+.p-grey { background: #f1f5f9; color: #475569; }
+.btn { border: none; border-radius: 11px; padding: 13px 16px; font-weight: 700; font-size: 0.92rem;
+    background: var(--brand); color: #fff; width: 100%; }
+.btn.ghost { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+.btn.sm { padding: 9px 14px; font-size: 0.82rem; width: auto; }
+.btn.ok { background: var(--ok); } .btn.bad { background: var(--bad); }
+.btn:active { transform: scale(0.98); }
+.chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.chip { background: var(--card); border: 1px solid var(--line); border-radius: 13px; padding: 14px 8px;
+    text-align: center; font-size: 0.76rem; font-weight: 650; color: var(--ink); }
+.chip .ic { display: block; font-size: 1.5rem; margin-bottom: 5px; }
+label.f { display: block; font-size: 0.78rem; font-weight: 650; color: var(--muted); margin: 12px 0 5px; }
+input.f, select.f, textarea.f { width: 100%; padding: 12px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--card); color: var(--ink); }
+textarea.f { min-height: 78px; resize: vertical; }
+
+/* ---------- the clock-in slider ---------- */
+.status { text-align: center; padding: 22px 16px 18px; }
+.status .big { font-size: 2.6rem; font-weight: 800; letter-spacing: -1.5px; line-height: 1; }
+.status .lab { color: var(--muted); font-size: 0.86rem; margin-top: 6px; }
+.slider { position: relative; height: 62px; border-radius: 31px; margin-top: 18px; overflow: hidden;
+    background: linear-gradient(90deg, #1d4ed8, #2563eb); user-select: none; touch-action: pan-y; }
+.slider.out { background: linear-gradient(90deg, #b91c1c, #dc2626); }
+.slider.done { background: #e2e8f0; }
+.slider .fill { position: absolute; inset: 0; background: rgba(255,255,255,0.18); width: 0; }
+.slider .txt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 0.95rem; letter-spacing: 0.2px; padding-left: 30px; }
+.slider.done .txt { color: var(--muted); padding-left: 0; }
+.slider .thumb { position: absolute; top: 5px; left: 5px; width: 52px; height: 52px; border-radius: 50%;
+    background: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.35rem;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.22); transition: left 0.18s ease; }
+.slider.dragging .thumb { transition: none; }
+.slider.done .thumb { display: none; }
+
+/* ---------- calendar ---------- */
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.cal-head button { border: 1px solid var(--line); background: var(--card); border-radius: 9px;
+    width: 38px; height: 38px; font-size: 1.1rem; color: var(--ink); }
+.cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
+.cal-dow div { text-align: center; font-size: 0.68rem; color: var(--muted); font-weight: 700; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal .d { aspect-ratio: 1; border-radius: 10px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; font-size: 0.86rem; font-weight: 650;
+    background: var(--card); border: 1px solid transparent; position: relative; }
+.cal .d.pad { background: none; }
+.cal .d .dot { width: 5px; height: 5px; border-radius: 50%; margin-top: 3px; }
+.cal .d.today { border-color: var(--brand); }
+.cal .d.present { background: #dcfce7; color: #166534; }
+.cal .d.late    { background: #ffedd5; color: #9a3412; }
+.cal .d.absent  { background: #fee2e2; color: #991b1b; }
+.cal .d.leave   { background: #ede9fe; color: #5b21b6; }
+.cal .d.holiday { background: #fef3c7; color: #92400e; }
+.cal .d.weekoff { background: #f8fafc; color: #94a3b8; }
+.cal .d.future  { color: #cbd5e1; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; font-size: 0.72rem; color: var(--muted); }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
+
+/* ---------- sheet ---------- */
+.sheet-bg { position: fixed; inset: 0; background: rgba(15,23,42,0.5); z-index: 60; display: none; }
+.sheet-bg.on { display: block; }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; background: var(--card);
+    border-radius: 20px 20px 0 0; padding: 8px 18px calc(22px + var(--safe-b));
+    transform: translateY(100%); transition: transform 0.24s ease; max-height: 88%; overflow-y: auto; }
+.sheet.on { transform: none; }
+.sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 6px auto 14px; }
+.sheet h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
+
+/* ---------- misc ---------- */
+.empty { text-align: center; color: var(--muted); font-size: 0.86rem; padding: 30px 14px; }
+.offline { background: #fef3c7; color: #92400e; font-size: 0.8rem; padding: 8px 16px; text-align: center;
+    font-weight: 600; display: none; }
+.offline.on { display: block; }
+.toast { position: fixed; left: 16px; right: 16px; bottom: calc(92px + var(--safe-b)); z-index: 80;
+    background: #0f172a; color: #fff; padding: 13px 16px; border-radius: 12px; font-size: 0.87rem;
+    box-shadow: 0 8px 26px rgba(0,0,0,0.3); opacity: 0; transform: translateY(12px);
+    transition: 0.2s; pointer-events: none; }
+.toast.on { opacity: 1; transform: none; }
+.toast.bad { background: #991b1b; }
+.spin { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff;
+    border-radius: 50%; animation: sp 0.7s linear infinite; display: inline-block; vertical-align: -3px; }
+@keyframes sp { to { transform: rotate(360deg); } }
+.reveal { background: none; border: none; color: var(--brand); font-size: 0.78rem; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<!-- ======================= SIGN IN ======================= -->
+<div id="gate">
+    <div class="g-mark"></div>
+    <div class="g-title">My Work</div>
+    <div class="g-sub">Clock in, ask for leave, and see your attendance.</div>
+    <div class="g-err" id="gate-err"></div>
+    <label for="gm">Email</label>
+    <input type="email" id="gm" autocomplete="username" inputmode="email" placeholder="name@company.com">
+    <label for="gp">Password</label>
+    <input type="password" id="gp" autocomplete="current-password" placeholder="Your password">
+    <button class="g-btn" id="gbtn">Sign in</button>
+    <div class="g-foot">BISCS OS &middot; Dynamic Engineers</div>
+</div>
+
+<!-- ======================= APP ======================= -->
+<div id="app">
+    <div class="top">
+        <div class="av" id="t-av">?</div>
+        <div style="flex:1; min-width:0;">
+            <div class="nm" id="t-name">&mdash;</div>
+            <div class="sb" id="t-sub">&mdash;</div>
+        </div>
+    </div>
+    <div class="offline" id="offline">Offline &mdash; your punches are saved and will be sent when you are back.</div>
+
+    <div class="scroll" id="scroll">
+        <div class="page on" id="p-home"></div>
+        <div class="page" id="p-cal"></div>
+        <div class="page" id="p-req"></div>
+        <div class="page" id="p-appr"></div>
+        <div class="page" id="p-me"></div>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+</div>
+
+<div class="sheet-bg" id="sheet-bg" onclick="closeSheet()"></div>
+<div class="sheet" id="sheet"><div class="grab"></div><div id="sheet-body"></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="supabase.js" onerror="window.__sbLocalMissing=true"></script>
+<script src="app.js"></script>
+</body>
+</html>
