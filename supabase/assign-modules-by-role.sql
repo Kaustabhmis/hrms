@@ -1,8 +1,15 @@
 -- ============================================================================
 -- Assign modules to a whole role at once
 --
--- Paste into the Supabase SQL Editor and run. Needs 0006_role_modules.sql to
--- have been applied first (it is inside setup.sql, so re-running that is enough).
+-- The Supabase SQL Editor shows the result of the LAST statement only, so
+-- select one step with the mouse and press Run, then the next -- do not run
+-- the whole file and expect to see every answer.
+--
+-- Needs setup.sql to have been run first.
+--
+-- Not sure which key is which? The screen called "People" belongs to the
+-- module called core-hr; there is no module named People. Run this for the map:
+--     select * from module_keys_v;
 --
 -- The company licence is still the ceiling: naming a module the company does
 -- not hold grants nothing, and the result line tells you which ones those were.
@@ -26,14 +33,21 @@ select id, name, code from companies order by name;
 select set_role_modules(
     (select id from companies where code = 'DEPL'),
     'employee',
+    -- Comma at the START of each line, so commenting one out never breaks
+    -- the lines around it.
     array[
-        'ess',          -- their own profile, requests and payslips
-        'attendance',   -- clocking in and their own register
-        'leave',        -- applying for leave and seeing the balance
-        'payroll',      -- so their payslip is visible to them
-        'expenses',     -- claiming a bill back
-        'helpdesk',     -- raising a problem
-        'notices'       -- the notice board
+         'ess'          -- their own profile, requests and payslips
+        ,'attendance'   -- clocking in and their own register
+        ,'leave'        -- applying for leave and seeing the balance
+        ,'payroll'      -- so their payslip is visible to them
+        ,'expenses'     -- claiming a bill back
+        ,'helpdesk'     -- raising a problem
+        ,'notices'      -- the notice board
+--      ,'timesheets'   -- booking hours to projects
+--      ,'travel'       -- asking to travel and claiming it back
+--      ,'benefits'     -- their medical cover
+--      ,'learning'     -- training and courses
+--      ,'performance'  -- their own goals and review
     ]
 );
 
