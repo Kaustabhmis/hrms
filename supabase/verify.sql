@@ -7,11 +7,14 @@
 -- ============================================================================
 with checks as (
     select 1 as ord, 'Tables' as what,
-           (select count(*)::text from information_schema.tables where table_schema='public') as found,
+           -- Base tables only. information_schema.tables counts views too, which
+           -- made this row drift every time a view was added.
+           (select count(*)::text from information_schema.tables
+            where table_schema='public' and table_type='BASE TABLE') as found,
            '29' as expected
     union all
     select 2, 'Row-level security policies',
-           (select count(*)::text from pg_policies where schemaname='public'), '76'
+           (select count(*)::text from pg_policies where schemaname='public'), '78'
     union all
     select 3, 'Modules in the catalog',
            (select count(*)::text from modules), '30'
