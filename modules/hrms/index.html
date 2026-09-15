@@ -4291,6 +4291,19 @@
             return true;
         });
     }
+    // Finishing a link that arrived by email: the tokens are in the URL, so the
+    // session is established from them and the new password written against it.
+    function completeRecovery(accessToken, refreshToken, newPassword) {
+        return connect().then(function (sb) {
+            return sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+        }).then(function (r) {
+            if (r && r.error) throw new Error(explain(r.error));
+            return SB.auth.updateUser({ password: newPassword });
+        }).then(function (r) {
+            if (r && r.error) throw new Error(explain(r.error));
+            return true;
+        });
+    }
 
     // Who the database says this session is. Never what the page thinks.
     function fetchProfile() {
@@ -4448,7 +4461,7 @@
         signIn: signIn, signOut: signOut, profile: fetchProfile, myModules: myModules,
         defaults: defaults, autoConnect: autoConnect,
         createUser: createUser, placeUser: placeUser, listUsers: listUsers,
-        sendPasswordReset: sendPasswordReset,
+        sendPasswordReset: sendPasswordReset, completeRecovery: completeRecovery,
         read: read, insert: insert, update: update, remove: remove,
         client: function () { return SB; }
     };
@@ -20240,6 +20253,107 @@ function renderAuthNote() {
     }
 }
 
+// --- links that arrive by email ------------------------------------------
+// A confirmation or reset link comes back to this page with everything in the
+// URL fragment, and until now the page ignored it completely: somebody clicking
+// a link that had expired landed on an ordinary sign-in screen with no idea why
+// nothing had happened. Now the page reads the fragment and says what went on.
+function readAuthHash() {
+    var raw = (location.hash || '').replace(/^#/, '');
+    if (!raw) return null;
+    var out = {};
+    raw.split('&').forEach(function (bit) {
+        var i = bit.indexOf('=');
+        if (i > 0) out[decodeURIComponent(bit.slice(0, i))] = decodeURIComponent(bit.slice(i + 1).replace(/\+/g, ' '));
+    });
+    return (out.error || out.access_token || out.type) ? out : null;
+}
+function clearAuthHash() {
+    try { history.replaceState(null, '', location.pathname + location.search); }
+    catch (e) { location.hash = ''; }
+}
+function handleAuthLink() {
+    var h = readAuthHash();
+    if (!h) return false;
+    clearAuthHash();
+
+    if (h.error) {
+        // otp_expired is by far the commonest, and almost never means what it
+        // says: the usual cause is that something opened the link first -- a
+        // mail scanner, a link preview -- and these tokens are good once only.
+        var why = (h.error_code === 'otp_expired' || /expired|invalid/i.test(h.error_description || ''))
+            ? 'That link has already been used or has expired.<br><br>Email links work once. ' +
+              'If your mail app or antivirus previewed the message, it used the link up before you ' +
+              'clicked it. Ask for a new one, and open it on the phone or computer you want to sign in on.'
+            : esc(h.error_description || h.error);
+        authError(why);
+        return true;
+    }
+
+    if (h.type === 'recovery' && h.access_token) {
+        showRecoveryForm(h.access_token, h.refresh_token || '');
+        return true;
+    }
+
+    if (h.access_token) {
+        // A confirmation link that worked. The session is live, so sign in with
+        // it rather than asking for a password that was just proved.
+        authError('');
+        if (typeof BiscsBackend !== 'undefined') {
+            BiscsBackend.connect().then(function (sb) {
+                return sb.auth.setSession({ access_token: h.access_token, refresh_token: h.refresh_token || '' });
+            }).then(function () { return BiscsBackend.profile(); })
+              .then(function (p) { return BiscsBackend.myModules().then(function (m) { return { p: p, m: m || [] }; }); })
+              .then(function (res) {
+                  var u = userByEmail(res.p.email);
+                  if (!u) {
+                      u = { id: res.p.id, email: res.p.email, name: res.p.name, role: res.p.role,
+                            companyId: res.p.company_id || '', empId: res.p.employee_id || '',
+                            modules: res.m, allModules: !!res.p.all_modules, status: res.p.status,
+                            createdOn: DEMO_TODAY, lastSignIn: '', salt: '', hash: '', algo: '', remote: true };
+                      appUsers.push(u);
+                  }
+                  startRemoteSession(u, res.m);
+              })
+              .catch(function (err) {
+                  authError('Your email is confirmed. Sign in below.<br><br>' +
+                      '<span style="font-size:0.78rem;">(' + esc(String(err && err.message || err)) + ')</span>');
+              });
+        }
+        return true;
+    }
+    return false;
+}
+
+// Setting a new password from a reset link, on the page the link landed on.
+function showRecoveryForm(accessToken, refreshToken) {
+    var card = document.querySelector('.auth-card');
+    if (!card) return;
+    card.innerHTML =
+        '<h2 class="auth-title">Set a new password</h2>' +
+        '<p class="auth-lede">Choose something you have not used here before.</p>' +
+        '<div class="auth-error" id="auth-error"></div>' +
+        '<div class="auth-field"><label for="rc-p1">New password</label>' +
+            '<input type="password" id="rc-p1" autocomplete="new-password" placeholder="At least 8 characters, a letter and a number"></div>' +
+        '<div class="auth-field"><label for="rc-p2">Type it again</label>' +
+            '<input type="password" id="rc-p2" autocomplete="new-password" placeholder="The same password"></div>' +
+        '<button class="btn btn-primary auth-submit" id="rc-go">Save the new password</button>';
+    document.getElementById('rc-go').onclick = function () {
+        var a = document.getElementById('rc-p1').value, b = document.getElementById('rc-p2').value;
+        var complaint = (typeof passwordComplaint === 'function') ? passwordComplaint(a) : '';
+        if (complaint) return authError(esc(complaint));
+        if (a !== b) return authError('Those two do not match.');
+        var btn = document.getElementById('rc-go');
+        btn.disabled = true; btn.innerText = 'Saving\u2026';
+        BiscsBackend.completeRecovery(accessToken, refreshToken, a).then(function () {
+            location.replace(location.pathname + location.search);
+        }).catch(function (err) {
+            btn.disabled = false; btn.innerText = 'Save the new password';
+            authError(esc(String(err && err.message || err)));
+        });
+    };
+}
+
 // Small courtesies that make a sign-in screen feel finished.
 function togglePasswordVisible() {
     const i = document.getElementById('auth-pass'), b = document.getElementById('auth-eye');
@@ -21267,6 +21381,7 @@ window.onload = () => {
         renderProviderUsers();
         const gate = document.getElementById('auth-gate');
         if (gate) gate.style.display = 'grid';
+        handleAuthLink();
         const em = document.getElementById('auth-email');
         if (em) em.focus();
         audit('Application started', companies.length + ' companies · ' + appUsers.length + ' accounts', 'System');
