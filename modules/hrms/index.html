@@ -13445,17 +13445,35 @@ function employeeDeleteReport(empId) {
 }
 function confirmDeleteEmployee(empId) {
     const rep = employeeDeleteReport(empId);
+    // The blockers exist for a reason -- a deleted payslip is a statutory record
+    // destroyed -- so everybody meets them. The owner of the installation can go
+    // through them anyway, having been told exactly what that costs.
+    const mayOverride = session && session.role === 'super';
     if (rep.blockers.length) {
         const body = document.getElementById('emp-delete-body');
         if (body) body.innerHTML =
             '<div style="background:#fee2e2; border:1px solid #f87171; border-radius:8px; padding:14px; margin-bottom:16px;">' +
-                '<strong style="color:#991b1b;">' + esc(rep.emp.name) + ' cannot be deleted</strong>' +
+                '<strong style="color:#991b1b;">' + esc(rep.emp.name) +
+                    (mayOverride ? ' should not be deleted' : ' cannot be deleted') + '</strong>' +
                 '<ul style="margin:10px 0 0 18px; font-size:0.86rem; line-height:1.7; color:#991b1b;">' +
                 rep.blockers.map(b => '<li>' + b + '</li>').join('') + '</ul></div>' +
             '<p style="font-size:0.88rem; line-height:1.6;">Someone who has been paid should be <strong>offboarded</strong>, not deleted — that keeps their payslips, statutory filings and Full &amp; Final settlement intact while taking them off the active roll.</p>' +
+            (mayOverride
+                ? '<div style="background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:14px; margin-top:16px;">' +
+                    '<strong style="color:#9a3412;">Delete anyway</strong>' +
+                    '<p style="font-size:0.84rem; margin-top:6px; color:#9a3412; line-height:1.6;">' +
+                      'You are the owner, so you can. Understand what goes: payslips already issued, PF and ESI ' +
+                      'contribution records, and the muster behind them. Indian law requires wage and attendance ' +
+                      'registers to be kept for years after somebody leaves, and an inspector asking for them ' +
+                      'will not accept that the system removed them.</p>' +
+                    '<div class="form-group" style="margin-top:12px;"><label>Type <strong>DELETE ' + rep.emp.id + '</strong> to confirm</label>' +
+                      '<input type="text" id="del-confirm" placeholder="DELETE ' + rep.emp.id + '"></div>' +
+                    '<button class="btn btn-danger" style="width:100%;" onclick="deleteEmployee(\'' + empId + '\', true)">Delete permanently anyway</button>' +
+                  '</div>'
+                : '') +
             '<div style="display:flex; gap:10px; margin-top:18px;">' +
                 '<button class="btn btn-outline" style="flex:1;" onclick="closeModal(\'modal-emp-delete\')">Cancel</button>' +
-                '<button class="btn btn-danger" style="flex:1;" onclick="closeModal(\'modal-emp-delete\'); closeModal(\'modal-emp-edit\'); navigate(\'offboarding\'); openExitModal();">Initiate Exit Instead</button>' +
+                '<button class="btn btn-primary" style="flex:1;" onclick="closeModal(\'modal-emp-delete\'); closeModal(\'modal-emp-edit\'); navigate(\'offboarding\'); openExitModal();">Offboard instead</button>' +
             '</div>';
         openModal('modal-emp-delete');
         return;
@@ -13477,13 +13495,34 @@ function confirmDeleteEmployee(empId) {
         '</div>';
     openModal('modal-emp-delete');
 }
-function deleteEmployee(empId) {
+function deleteEmployee(empId, override) {
     const rep = employeeDeleteReport(empId);
-    if (rep.blockers.length) return showToast('This employee cannot be deleted.', 'error');
+    if (rep.blockers.length && !(override && session && session.role === 'super'))
+        return showToast('This employee cannot be deleted.', 'error');
     const typed = ((document.getElementById('del-confirm') || {}).value || '').trim().toUpperCase();
-    if (typed !== empId.toUpperCase()) return showToast('Type the employee code exactly to confirm.', 'error');
+    const want = override ? ('DELETE ' + empId).toUpperCase() : empId.toUpperCase();
+    if (typed !== want) return showToast('Type ' + want + ' exactly to confirm.', 'error');
     const emp = empById(empId);
     const name = emp ? emp.name : empId;
+
+    // With a backend, the row in Postgres is the employee; deleting only the
+    // copy in this browser would leave them present for everybody else and
+    // back again on the next sign-in.
+    if (backendLive() && emp && emp.remoteId) {
+        BiscsBackend.remove('employees', { id: emp.remoteId })
+            .catch(err => showToast('The database refused the delete: ' +
+                String(err && err.message || err), 'error'));
+    }
+    // An account with nobody behind it can still sign in and see nothing, which
+    // is worse than not existing. It goes with the person.
+    const acct = appUsers.find(u => u.empId === empId);
+    if (acct) {
+        if (backendLive() && acct.remote) {
+            BiscsBackend.remove('app_users', { id: acct.id }).catch(() => {});
+        }
+        appUsers = appUsers.filter(u => u.id !== acct.id);
+        provLog('Account deleted', acct.email, 'employee record removed');
+    }
 
     // Release assets, then clear every record keyed to this employee.
     assets.forEach(a => { if (a.assignedTo === empId) { a.assignedTo = ''; a.assignedOn = ''; } });
@@ -13524,7 +13563,9 @@ function deleteEmployee(empId) {
     closeModal('modal-emp-delete');
     closeModal('modal-emp-edit');
     editingEmpId = null;
-    audit('Employee deleted', name + ' (' + empId + ') and ' + rep.cascades.length + ' linked record group(s)', 'Directory');
+    audit(override ? 'Employee deleted (blockers overridden)' : 'Employee deleted',
+        name + ' (' + empId + ') and ' + rep.cascades.length + ' linked record group(s)' +
+        (override && rep.blockers.length ? ' \u00b7 overrode: ' + rep.blockers.length + ' safeguard(s)' : ''), 'Directory');
     payrollStage = 0;
     refreshEverything();
     showToast(name + ' deleted along with their linked records.', 'warning');
@@ -20903,7 +20944,7 @@ function renderUserEditor() {
     const granted = isSuper || d.allModules ? lic.slice() : expandModules(d.modules).filter(k => lic.indexOf(k) !== -1);
     const field = (label, html, hint) => '<div><label style="display:block; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:5px;">' + label + '</label>' + html +
         (hint ? '<div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">' + hint + '</div>' : '') + '</div>';
-    const empOptions = '<option value="">Not linked to an employee record</option>' +
+    const empOptions = '<option value="">Create a new employee record for them</option>' +
         employees.map(e => '<option value="' + e.id + '"' + (d.empId === e.id ? ' selected' : '') + '>' + esc(e.id + ' · ' + e.name + ' — ' + e.role) + '</option>').join('');
     const cats = [];
     MODULE_CATALOG.forEach(m => { if (cats.indexOf(m.cat) === -1) cats.push(m.cat); });
@@ -20925,7 +20966,8 @@ function renderUserEditor() {
                     : '<select id="us-company" onchange="onUserCompanyChange(this.value)">' +
                       companies.map(c => '<option value="' + c.id + '"' + (d.companyId === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select>')) +
             (isSuper ? '' : field('Employee record', '<select id="us-emp">' + empOptions + '</select>',
-                'Links the account to a person so the self-service screens show their own data.')) +
+                'HR, an admin and a manager are employees too \u2014 they clock in, take leave and are paid ' +
+                'like everybody else. Pick their existing record, or leave this to have one raised for them.')) +
             field('Status', '<select id="us-status">' + ['Active', 'Suspended'].map(s =>
                 '<option value="' + s + '"' + (d.status === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>') +
             field(d.id ? 'Reset password (leave blank to keep)' : 'Password',
@@ -21035,6 +21077,71 @@ function toggleUserModule(key, on) {
     }
     renderUserEditor();
 }
+// Nobody is above the rules. HR, an admin and a manager are employees of the
+// company like everybody else: they clock in, they take leave, they are paid,
+// and they appear on the muster. An account without an employee record behind
+// it is a person the system cannot pay and cannot mark present -- so creating
+// one for a control role creates the employee record too, unless an existing
+// record was picked.
+function employeeRecordFor(d) {
+    if (d.empId && empById(d.empId)) return d.empId;
+    // Somebody already on the roll with that email is that person, not a second one.
+    const byEmail = employees.find(e => (e.email || '').toLowerCase() === d.email);
+    if (byEmail) return byEmail.id;
+
+    const id = 'EMP-' + String(nextEmpSeq++).padStart(3, '0');
+    employees.push({
+        id: id, name: d.name, email: d.email,
+        role: d.role === 'hr' ? 'HR Manager' : d.role === 'admin' ? 'Administrator' : 'Employee',
+        dept: d.role === 'hr' ? 'Human Resources' : d.role === 'admin' ? 'Administration' : '',
+        grade: '', managerId: '', type: 'Full-Time (W2)', gender: '', fatherName: '', dob: '',
+        ctc: 0, pan: '', uan: '', esicNo: '', bank: '',
+        doj: DEMO_TODAY, location: '',
+        status: 'Confirmed', domebox: false
+    });
+    audit('Employee record created', d.name + ' (' + id + ') \u2014 raised with the login for ' +
+        (ROLE_LABEL[d.role] || d.role), 'Directory');
+    return id;
+}
+// The same, in Postgres. Returns the employee uuid the account should point at.
+function remoteEmployeeFor(d, companyId) {
+    const email = d.email;
+    // Somebody already on the roll with that address is that person. Making a
+    // second record for them is how a payroll ends up paying one person twice.
+    return BiscsBackend.read('employees', { where: { email: email } }).then(rows => {
+        if (rows && rows.length) { mirrorEmployee(rows[0]); return rows[0].id; }
+        return BiscsBackend.read('employees').then(all => {
+            const code = 'EMP-' + String((all || []).length + 1).padStart(3, '0');
+            return BiscsBackend.insert('employees', [{
+                company_id: companyId, code: code, name: d.name, email: email,
+                designation: d.role === 'hr' ? 'HR Manager' : d.role === 'admin' ? 'Administrator' : 'Employee',
+                dept: d.role === 'hr' ? 'Human Resources' : d.role === 'admin' ? 'Administration' : null,
+                emp_type: 'Full-Time (W2)', doj: DEMO_TODAY, status: 'Confirmed'
+            }]).then(made => {
+                const row = made && made[0];
+                if (row) mirrorEmployee(row);
+                return (row && row.id) || null;
+            });
+        });
+    });
+}
+// Keep a copy on the roll this browser draws from, tagged with the id Postgres
+// gave it, so a person created through the access screen appears in the
+// directory at once and can be deleted from the database later.
+function mirrorEmployee(row) {
+    if (!row) return;
+    if (employees.some(e => e.remoteId === row.id)) return;
+    employees.push({
+        id: row.code || row.id, remoteId: row.id, name: row.name, email: row.email || '',
+        role: row.designation || 'Employee', dept: row.dept || '', grade: row.grade || '',
+        managerId: '', type: row.emp_type || 'Full-Time (W2)', gender: row.gender || '',
+        fatherName: row.father_name || '', dob: row.dob || '', ctc: Number(row.ctc) || 0,
+        pan: row.pan || '', uan: row.uan || '', esicNo: row.esic_no || '', bank: row.bank || '',
+        doj: row.doj || DEMO_TODAY, exitDate: row.exit_date || '', location: row.location || '',
+        status: row.status || 'Confirmed', domebox: false
+    });
+}
+
 function saveUser() {
     captureUserFields();
     const d = userDraft;
@@ -21113,6 +21220,9 @@ function saveUser() {
         }
         return finish(existing, false);
     }
+    // A provider account is not an employee of any company -- everybody else is.
+    if (d.role !== 'super') d.empId = employeeRecordFor(d);
+
     const user = {
         id: 'USR-' + String(nextUserSeq++).padStart(3, '0'),
         email: d.email, name: d.name, role: d.role, companyId: d.role === 'super' ? '' : d.companyId,
@@ -21127,7 +21237,12 @@ function saveUser() {
         const btn = document.getElementById('user-save');
         if (btn) { btn.disabled = true; btn.innerText = 'Creating…'; }
         const done = () => { if (btn) { btn.disabled = false; btn.innerText = 'Create account'; } };
-        return BiscsBackend.createUser({
+        // The employee record comes first: an account is pointed at a person,
+        // never left dangling with nobody behind it.
+        const withEmployee = (d.role === 'super')
+            ? Promise.resolve(null)
+            : remoteEmployeeFor(d, d.companyId);
+        return withEmployee.then(empUuid => BiscsBackend.createUser({
             email: d.email, password: d.newPassword, name: d.name,
             role: d.role, companyId: d.role === 'super' ? '' : d.companyId
         }).then(res => {
@@ -21136,10 +21251,13 @@ function saveUser() {
             return BiscsBackend.placeUser(res.id, {
                 name: d.name, role: d.role,
                 company_id: d.role === 'super' ? null : (d.companyId || null),
-                employee_id: d.empId || null,
+                employee_id: empUuid || d.empId || null,
                 all_modules: !!d.allModules, status: d.status
-            }, d.allModules ? [] : expandModules(d.modules || [])).then(() => res);
-        }).then(res => {
+            }, d.allModules ? [] : expandModules(d.modules || [])).then(() => {
+                user.empId = empUuid || d.empId || '';
+                return res;
+            });
+        })).then(res => {
             done();
             appUsers.push(user);
             finish(user, true);
@@ -21194,13 +21312,36 @@ function deleteUser() {
     if (user.email === SUPER_EMAIL) return showToast('The owner account cannot be deleted.', 'error');
     if (session && session.email === user.email) return showToast('You cannot delete the account you are signed in with.', 'error');
     if (backendLive() && user.remote) {
-        if (!confirm('Suspend the account for ' + user.email + '?\n\nThey lose access immediately and every screen closes to them. ' +
-                     'Employee records and history are untouched.\n\nThe login itself stays in Supabase Auth; delete it there if you want it gone for good.')) return;
-        return BiscsBackend.placeUser(user.id, { status: 'Suspended' }, []).then(() => {
-            user.status = 'Suspended'; user.modules = []; user.allModules = false;
-            provLog('Account suspended', user.email, ROLE_LABEL[user.role] + ' · ' + (user.companyId ? companyName(user.companyId) : 'provider'));
+        // Two different things, and the difference matters. Suspending keeps
+        // the row and shuts the door; deleting removes the row, after which the
+        // login still exists in Supabase Auth but resolves to nobody -- it can
+        // sign in and see nothing at all, because every policy compares against
+        // an account that is no longer there.
+        const choice = prompt('What should happen to ' + user.email + '?\n\n' +
+            '  1  Suspend \u2014 they cannot sign in, the account stays\n' +
+            '  2  Delete \u2014 the account is removed entirely\n\n' +
+            'Employee records, attendance and payslips are untouched either way.\n' +
+            'Type 1 or 2.', '1');
+        if (choice === null) return;
+        const wantDelete = String(choice).trim() === '2';
+
+        if (!wantDelete) {
+            return BiscsBackend.placeUser(user.id, { status: 'Suspended' }, []).then(() => {
+                user.status = 'Suspended'; user.modules = []; user.allModules = false;
+                provLog('Account suspended', user.email, ROLE_LABEL[user.role] + ' \u00b7 ' + (user.companyId ? companyName(user.companyId) : 'provider'));
+                saveIdentity(); closeModal('modal-user'); refreshProviderViews();
+                showToast(user.email + ' is suspended and cannot sign in.', 'success');
+            }).catch(err => showToast(String(err && err.message || err), 'error'));
+        }
+        if (!confirm('Delete the account for ' + user.email + ' for good?\n\n' +
+                     'The login itself remains in Supabase Auth and has to be removed there too if you ' +
+                     'want the email freed up \u2014 Authentication \u2192 Users. Until then it can sign in ' +
+                     'and will see nothing.')) return;
+        return BiscsBackend.remove('app_users', { id: user.id }).then(() => {
+            appUsers = appUsers.filter(u => u.id !== user.id);
+            provLog('Account deleted', user.email, ROLE_LABEL[user.role] + ' \u00b7 ' + (user.companyId ? companyName(user.companyId) : 'provider'));
             saveIdentity(); closeModal('modal-user'); refreshProviderViews();
-            showToast(user.email + ' is suspended and cannot sign in.', 'success');
+            showToast(user.email + ' deleted. Remove the login in Supabase \u2192 Authentication \u2192 Users to free the address.', 'success');
         }).catch(err => showToast(String(err && err.message || err), 'error'));
     }
     if (!confirm('Delete the account for ' + user.email + '?\n\nThey lose access immediately. Employee records and history are untouched.')) return;
