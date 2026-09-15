@@ -1,0 +1,48 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'in.dynamicengineers.biscs'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "in.dynamicengineers.biscs"
+        minSdk 24                 // Android 7.0 — covers the phones actually on a shop floor
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    // Signed with a key generated at build time and committed alongside, so the
+    // APK installs on a phone rather than being rejected as unsigned. This is a
+    // self-signed key for sideloading; a Play Store release needs your own.
+    signingConfigs {
+        release {
+            storeFile file("../biscs-release.jks")
+            storePassword "biscsapp"
+            keyAlias "biscs"
+            keyPassword "biscsapp"
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Serves the bundled files over https://appassets.androidplatform.net/ so
+    // the page runs on a real secure origin: localStorage survives, the sign-in
+    // session persists, and geolocation is allowed. Loading them from file://
+    // would break all three.
+    //
+    // This is the only dependency. AppCompat would drag in two Kotlin standard
+    // libraries that collide with each other, for a theme and a base class the
+    // framework already provides.
+    implementation 'androidx.webkit:webkit:1.11.0'
+}
