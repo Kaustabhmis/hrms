@@ -4602,7 +4602,24 @@ var companyCalendar = {
 // Calendar view state — month cursor per calendar instance.
 let calendarCursor = { company: null, ess: null };
 // Fixed "today" for the demo cycle so the seeded April data lines up.
-const DEMO_TODAY = '2026-04-16';
+// The seeded demo data is written around a fixed date, and 186 places read
+// this. That is fine while the data is made up -- and wrong the moment it is
+// not: the phone stamps a punch with the real date, so a register frozen on
+// 16 April would show nothing for somebody who clocked in this morning.
+//
+// So: the demo date while this is a demo, and the real one as soon as there is
+// a database behind it. Decided once, at load, before anything reads it.
+const DEMO_TODAY = (function () {
+    var live = false;
+    try {
+        var cfg = JSON.parse(localStorage.getItem('biscs-hrms-supabase-v1') || 'null');
+        live = !!(cfg && cfg.url && cfg.anonKey && cfg.enabled !== false);
+    } catch (e) { live = false; }
+    if (!live) return '2026-04-16';
+    var d = new Date();
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+})();
 
 // ESS clock in/out session for the current day.
 // Individual punches. A day may hold several in/out pairs — a mid-day client
@@ -4635,7 +4652,54 @@ function pushPunch(empId, iso, time, direction, source, site, by, geo) {
                   geoStatus: 'off', lat: null, lng: null, accuracy: null, simulated: false, fence: '', distance: null };
     if (geo) Object.assign(rec, geo);
     punchLog.push(rec);
+    queuePunchForBackend(rec);
     return rec;
+}
+
+// Every punch in the system comes through pushPunch -- the web check-in, HR's
+// manual entry, and an eSSL import that can be thousands of rows at once. One
+// insert per punch would take minutes on an import, so they are gathered and
+// sent in batches. A punch already in the database comes back as a duplicate
+// key, which is a success: that unique key exists so re-importing an eSSL
+// export is safe.
+var PUNCH_QUEUE = [], punchFlushTimer = null;
+function queuePunchForBackend(rec) {
+    if (!backendLive() || !session || !session.companyId) return;
+    PUNCH_QUEUE.push(rec);
+    clearTimeout(punchFlushTimer);
+    punchFlushTimer = setTimeout(flushPunchQueue, 400);
+}
+function flushPunchQueue() {
+    if (!PUNCH_QUEUE.length || !backendLive()) return Promise.resolve(0);
+    const batch = PUNCH_QUEUE.splice(0, PUNCH_QUEUE.length);
+    const cid = session.companyId;
+    const rows = batch.map(r => SYNC_MAP.punches.toRow(r, cid))
+                      .filter(r => r.employee_id);          // unknown person, nothing to attach to
+    const skipped = batch.length - rows.length;
+    if (!rows.length) {
+        if (skipped) showToast(skipped + ' punch(es) could not be saved: no matching employee.', 'error');
+        return Promise.resolve(0);
+    }
+    // In chunks, because a single insert of ten thousand rows is a request that
+    // times out rather than a clever one.
+    const chunks = [];
+    for (let i = 0; i < rows.length; i += 500) chunks.push(rows.slice(i, i + 500));
+    return chunks.reduce((chain, c) => chain.then(n =>
+        BiscsBackend.insert('punch_log', c)
+            .then(() => n + c.length)
+            .catch(err => {
+                if (/duplicate key/i.test(String(err && err.message || err))) return n + c.length;
+                throw err;
+            })
+    ), Promise.resolve(0)).then(n => {
+        if (skipped) showToast(skipped + ' punch(es) skipped: no matching employee.', 'warning');
+        return n;
+    }).catch(err => {
+        showToast('Punches were recorded here but not saved to the database: ' +
+            String(err && err.message || err), 'error');
+        provLog('Punch sync failed', String(rows.length) + ' row(s)', String(err && err.message || err));
+        return 0;
+    });
 }
 function punchesFor(empId, iso) {
     return punchLog.filter(p => p.empId === empId && p.date === iso).sort((a, b) => a.time.localeCompare(b.time));
@@ -5064,9 +5128,29 @@ function renameHoliday(iso) {
 
 // One place for everything a change to the list has to touch, so a new caller
 // cannot forget half of it and leave the calendar and the muster disagreeing.
+// The list is small and changes rarely, so it is written whole. That also makes
+// a removal reach the database, which a row-by-row upsert would not.
+function pushHolidays() {
+    if (!backendLive() || !session || !session.companyId) return Promise.resolve(false);
+    const cid = session.companyId;
+    return BiscsBackend.remove('holidays', { company_id: cid }).then(() =>
+        companyCalendar.holidays.length
+            ? BiscsBackend.insert('holidays', companyCalendar.holidays.map(h => ({
+                  company_id: cid, holiday_date: h.date, name: h.name, kind: h.type || 'Company' })))
+            : true
+    ).then(() => true).catch(err => {
+        showToast('The holiday list did not reach the database: ' +
+            String(err && err.message || err), 'error');
+        return false;
+    });
+}
+
 function afterHolidayChange(event, detail) {
     companyCalendar.holidays.sort((a, b) => a.date.localeCompare(b.date));
     audit(event, detail, 'Attendance');
+    // The holiday list is what the phone shows an employee and what payroll
+    // counts as payable. Kept in one browser it would be neither.
+    pushHolidays();
     saveState(true);
     renderHolidays();
     if (typeof renderCalendar === 'function') { try { renderCalendar('company'); } catch (e) {} }
@@ -8120,6 +8204,27 @@ function previewSalaryStructure() {
     if (previewEl) previewEl.innerHTML = html;
 }
 
+// A new joiner's opening entitlement, pro-rated across what is left of the
+// financial year and posted to the ledger every other screen reads.
+function creditOpeningLeave(emp) {
+    const doj = emp.doj || DEMO_TODAY;
+    const fyEnd = fyEndIso();
+    if (doj > fyEnd) return;
+    const monthsLeft = Math.max(1, Math.min(12,
+        Math.round((new Date(fyEnd) - new Date(doj)) / 86400000 / 30.44)));
+    applicableLeaveTypes().forEach(t => {
+        const full = Number(t.annual || 0);
+        if (!full) return;
+        const step = Number(t.roundTo) || 0.5;
+        const raw = (t.proRateOnJoin === false) ? full : (full * monthsLeft / 12);
+        const days = Math.round(raw / step) * step;
+        if (days <= 0) return;
+        postLeaveCredit(emp.id, t.code, days, 'Opening',
+            'Opening balance on joining, pro-rated for ' + monthsLeft + ' month(s) of the year',
+            doj, doj.slice(0, 7));
+    });
+}
+
 function saveEmployee() {
     const val = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
     const name = val('emp-name');
@@ -8131,8 +8236,8 @@ function saveEmployee() {
     const newId = 'EMP-' + String(nextEmpSeq++).padStart(3, '0');
     const struct = calculateSalaryStructure(ctc);
     const esicNo = val('emp-esic');
-    employees.push({
-        id: newId, name, role,
+    const newEmp = {
+        id: newId, code: newId, name, role,
         dept: val('emp-dept') || 'Engineering',
         type: val('emp-type'),
         gender: val('emp-gender'),
@@ -8145,9 +8250,21 @@ function saveEmployee() {
         location: 'Kolkata',
         status: 'Probation',
         domebox: true
-    });
+    };
+    employees.push(newEmp);
+    // A person who exists only in this browser cannot clock in on a phone and
+    // cannot be paid from another machine, so they go to the database too.
+    pushRow('employees', newEmp);
     todayAttendance[newId] = 'Present';
-    leaveBalances[newId] = { cl: 12, sl: 7 };
+    // This used to write to a variable that does not exist anywhere in the file,
+    // so adding an employee threw a ReferenceError here every single time: the
+    // person was added, and then the modal never closed, nothing refreshed and
+    // no message appeared. It looked like the button did nothing.
+    //
+    // What it was reaching for is the opening leave balance, and the ledger is
+    // where that actually lives. Pro-rated from the joining date, because
+    // somebody who joins in October has not earned a full year of leave.
+    creditOpeningLeave(newEmp);
 
     // If this hire came out of the ATS pipeline, close the candidate record.
     let fromATS = null;
@@ -10556,6 +10673,9 @@ function commitLeave(id) {
     audit('Leave approved', empName(l.empId) + ' · ' + leaveTypeByCode(l.code).name + ' ' + l.days + 'd from ' + l.from + extra, 'Leave');
     refreshLeaveDependents();
     showToast(message, tone);
+    // The decision belongs in the database, or the phone that asked will go on
+    // showing Pending for ever.
+    { const _l = leaveLedger.find(x => x.id === id); if (_l) pushRow('leave', _l); }
 }
 function discardLeave(id) {
     const l = leaveLedger.find(x => x.id === id);
@@ -10565,6 +10685,9 @@ function discardLeave(id) {
     audit('Leave rejected', empName(l.empId) + ' · ' + l.days + 'd from ' + l.from, 'Leave');
     refreshLeaveDependents();
     showToast('Leave rejected for ' + empName(l.empId) + '.', 'warning');
+    // The decision belongs in the database, or the phone that asked will go on
+    // showing Pending for ever.
+    { const _l = leaveLedger.find(x => x.id === id); if (_l) pushRow('leave', _l); }
 }
 // Leave changes ripple into the muster, calendars and any in-progress payroll.
 function refreshLeaveDependents() {
@@ -13406,6 +13529,7 @@ function saveEmployeeEdit() {
     closeModal('modal-emp-edit');
     editingEmpId = null;
     audit('Employee record edited', emp.name + ' (' + emp.id + ')' + (changed ? ' · CTC ' + fmtINR(oldCtc) + ' → ' + fmtINR(ctc) + (asRev ? ' as a revision' : ' as a correction') : '') + ' · was ' + before, 'Directory');
+    pushRow('employees', emp);
     refreshEverything();
     showToast(emp.name + ' updated.' + revNote, 'success');
 }
@@ -20155,7 +20279,7 @@ function signInViaBackend(email, password) {
                     const c = companies.find(y => y.id === x.company_id);
                     if (c && c.modules.indexOf(x.module_key) === -1) c.modules.push(x.module_key);
                 });
-                return loadRemoteEmployees().then(() => ({ user: u, modules: res.modules }));
+                return pullRemoteData().then(() => ({ user: u, modules: res.modules }));
             }).catch(() => ({ user: u, modules: res.modules }));
         }).catch(() => ({ user: u, modules: res.modules }));
     });
@@ -20180,7 +20304,207 @@ function warnIfIdentityUnresolved(user) {
     provLog('Identity unresolved', user.email, 'employee_id ' + (user.empId || '(none)') + ' not on the roll');
 }
 
-var REMOTE_ROLL = null;
+// ==========================================================================
+// THE SHARED RECORD
+//
+// Until now identity lived in Postgres and everything else lived in whichever
+// browser typed it. That is not a system: HR added a person on a laptop, the
+// phone never heard of them; somebody clocked in on the phone, the attendance
+// register on the laptop showed nothing. Two halves that never met.
+//
+// One map, read both ways. Every collection below is pulled at sign-in and
+// written back as it changes, so the laptop and the phone are looking at the
+// same rows. Row-level security still decides which rows come back.
+// ==========================================================================
+const SYNC_MAP = {
+    employees: {
+        table: 'employees', local: 'employees',
+        fromRow: r => ({ id: r.id, remoteId: r.id, code: r.code, name: r.name, email: r.email || '',
+            role: r.designation || 'Employee', dept: r.dept || '', grade: r.grade || '',
+            managerId: r.manager_id || '', type: r.emp_type || 'Full-Time (W2)',
+            gender: r.gender || '', fatherName: r.father_name || '', dob: r.dob || '',
+            ctc: Number(r.ctc) || 0, pan: r.pan || '', uan: r.uan || '', esicNo: r.esic_no || '',
+            bank: r.bank || '', doj: r.doj || '', exitDate: r.exit_date || '',
+            location: r.location || '', status: r.status || 'Confirmed',
+            domebox: !!r.domebox, remote: true }),
+        toRow: (e, companyId) => ({ company_id: companyId, code: e.code || e.id, name: e.name,
+            email: e.email || null, designation: e.role || null, dept: e.dept || null,
+            grade: e.grade || null, manager_id: remoteIdOf(e.managerId), emp_type: e.type || null,
+            gender: e.gender || null, father_name: e.fatherName || null, dob: e.dob || null,
+            ctc: Number(e.ctc) || 0, pan: e.pan || null, uan: e.uan || null,
+            esic_no: e.esicNo || null, bank: e.bank || null, doj: e.doj || null,
+            exit_date: e.exitDate || null, location: e.location || null,
+            status: e.status || 'Confirmed', domebox: !!e.domebox })
+    },
+    punches: {
+        table: 'punch_log', local: 'punchLog',
+        fromRow: r => ({ id: r.id, remoteId: r.id, empId: localEmpId(r.employee_id), date: r.punch_date,
+            time: String(r.punch_time || '').slice(0, 8), direction: r.direction,
+            source: r.source || 'Web', site: r.site || '', by: r.entered_by || '',
+            geoStatus: r.geo_status || 'off', lat: r.lat, lng: r.lng, accuracy: r.accuracy,
+            simulated: !!r.simulated, fence: r.fence || '', distance: r.distance, remote: true }),
+        toRow: (x, companyId) => ({ company_id: companyId, employee_id: remoteIdOf(x.empId),
+            punch_date: x.date, punch_time: x.time, direction: x.direction,
+            source: x.source || 'Web', site: x.site || null, entered_by: x.by || null,
+            geo_status: x.geoStatus || 'off', lat: x.lat, lng: x.lng, accuracy: x.accuracy,
+            simulated: !!x.simulated, fence: x.fence || null, distance: x.distance })
+    },
+    attendance: {
+        table: 'daily_attendance', local: 'dailyAttendance',
+        fromRow: r => ({ empId: localEmpId(r.employee_id), date: r.work_date,
+            inTime: String(r.in_time || '').slice(0, 5), outTime: String(r.out_time || '').slice(0, 5),
+            hours: Number(r.hours) || 0, remote: true }),
+        toRow: (x, companyId) => ({ company_id: companyId, employee_id: remoteIdOf(x.empId),
+            work_date: x.date, in_time: x.inTime || null, out_time: x.outTime || null,
+            hours: Number(x.hours) || 0, punches: 0 })
+    },
+    leave: {
+        table: 'leave_ledger', local: 'leaveLedger',
+        fromRow: r => ({ id: r.id, remoteId: r.id, empId: localEmpId(r.employee_id), code: r.code,
+            from: r.from_date, to: r.to_date, days: Number(r.days) || 0, status: r.status,
+            reason: r.reason || '', appliedOn: r.applied_on || '', actionBy: r.action_by || '',
+            remote: true }),
+        toRow: (x, companyId) => ({ company_id: companyId, employee_id: remoteIdOf(x.empId),
+            code: x.code, from_date: x.from, to_date: x.to, days: Number(x.days) || 0,
+            status: x.status || 'Pending', reason: x.reason || null,
+            applied_on: x.appliedOn || null, action_by: x.actionBy || null })
+    },
+    leaveCredits: {
+        table: 'leave_credits', local: 'leaveCredits',
+        fromRow: r => ({ id: r.id, remoteId: r.id, empId: localEmpId(r.employee_id), code: r.code,
+            days: Number(r.days) || 0, kind: r.kind, period: r.period || '',
+            note: r.note || '', on: r.posted_on || '', by: 'System', remote: true }),
+        toRow: (x, companyId) => ({ company_id: companyId, employee_id: remoteIdOf(x.empId),
+            code: x.code, days: Number(x.days) || 0, kind: x.kind || 'Accrual',
+            period: x.period || null, note: x.note || null, posted_on: x.on || null })
+    },
+    requests: {
+        table: 'attendance_requests', local: 'attendanceRequests',
+        fromRow: r => ({ id: r.id, remoteId: r.id, empId: localEmpId(r.employee_id),
+            code: r.kind === 'OD' ? 'OD' : 'FP', kind: r.kind,
+            from: r.from_date, to: r.to_date,
+            days: Math.max(1, Math.round((new Date(r.to_date) - new Date(r.from_date)) / 86400000) + 1),
+            inTime: String(r.in_time || '').slice(0, 5), outTime: String(r.out_time || '').slice(0, 5),
+            place: r.place || '', reason: r.reason || '', status: r.status,
+            raisedOn: (r.raised_on || '').slice(0, 10), actionBy: r.decided_by || '',
+            note: r.decision_note || '', remote: true }),
+        toRow: (x, companyId) => ({ company_id: companyId, employee_id: remoteIdOf(x.empId),
+            kind: x.kind || (x.code === 'OD' ? 'OD' : 'ForgotPunch'),
+            from_date: x.from, to_date: x.to, in_time: x.inTime || null, out_time: x.outTime || null,
+            place: x.place || null, reason: x.reason || '', status: x.status || 'Pending',
+            decided_by: x.actionBy || null, decision_note: x.note || null })
+    }
+};
+
+// The two id worlds. Screens key off the local id; the database keys off a
+// uuid. These are the only places that have to know both.
+function remoteIdOf(localId) {
+    if (!localId) return null;
+    const e = employees.find(x => x.id === localId || x.remoteId === localId || x.code === localId);
+    return (e && e.remoteId) || (/^[0-9a-f-]{36}$/i.test(localId) ? localId : null);
+}
+function localEmpId(remoteId) {
+    if (!remoteId) return '';
+    const e = employees.find(x => x.remoteId === remoteId);
+    return e ? e.id : remoteId;
+}
+
+// Pulled once at sign-in. Employees first, because everything else refers to
+// them and localEmpId has nothing to work with until the roll is there.
+function pullRemoteData() {
+    if (!backendLive()) return Promise.resolve(false);
+    const load = (name, order) => {
+        const m = SYNC_MAP[name];
+        return BiscsBackend.read(m.table, order ? { order: order, ascending: false, limit: 4000 } : { limit: 4000 })
+            .then(rows => { window[m.local] = (rows || []).map(m.fromRow); return true; })
+            .catch(err => {
+                provLog('Sync failed', m.table, String(err && err.message || err));
+                return false;
+            });
+    };
+    return load('employees').then(() => {
+        REMOTE_ROLL = employees.slice();
+        return Promise.all([
+            load('punches', 'punch_date'),
+            load('attendance', 'work_date'),
+            load('leave', 'from_date'),
+            load('leaveCredits'),
+            load('requests'),
+            BiscsBackend.read('holidays').then(rows => {
+                companyCalendar.holidays = (rows || []).map(h => ({
+                    date: h.holiday_date, name: h.name, type: h.kind || 'Company' }));
+            }).catch(() => {})
+        ]);
+    }).then(() => {
+        // Everything the database gave us, kept aside. loadTenantData() runs
+        // afterwards and restores this company's collections from browser
+        // storage -- which still holds the seeded demo data -- so without this
+        // the pull would be silently undone and the register would go on
+        // showing punches nobody made.
+        REMOTE_SNAPSHOT = {};
+        Object.keys(SYNC_MAP).forEach(k => {
+            REMOTE_SNAPSHOT[SYNC_MAP[k].local] = (window[SYNC_MAP[k].local] || []).slice();
+        });
+        REMOTE_SNAPSHOT.companyCalendarHolidays = companyCalendar.holidays.slice();
+        rebuildTodayAttendance();
+        return true;
+    });
+}
+
+// Put the database's answer back on top after the local restore.
+function applyRemoteSnapshot() {
+    if (!REMOTE_SNAPSHOT) return;
+    Object.keys(REMOTE_SNAPSHOT).forEach(k => {
+        if (k === 'companyCalendarHolidays') companyCalendar.holidays = REMOTE_SNAPSHOT[k].slice();
+        else window[k] = REMOTE_SNAPSHOT[k].slice();
+    });
+    rebuildTodayAttendance();
+}
+
+// todayAttendance is derived from the punches, so it has to be rebuilt after a
+// pull or the register would still be showing what this browser remembered.
+function rebuildTodayAttendance() {
+    if (typeof todayAttendance === 'undefined') return;
+    Object.keys(todayAttendance).forEach(k => { delete todayAttendance[k]; });
+    employees.forEach(e => {
+        const ps = punchesFor(e.id, DEMO_TODAY);
+        if (!ps.length) return;
+        todayAttendance[e.id] = { in: ps[0].time.slice(0, 5),
+            out: ps.length > 1 ? ps[ps.length - 1].time.slice(0, 5) : '', source: ps[0].source };
+    });
+}
+
+// Write-through. A screen changes a row, the row goes to the database, and a
+// failure says so rather than leaving the two quietly different.
+function pushRow(name, row) {
+    if (!backendLive()) return Promise.resolve(null);
+    const m = SYNC_MAP[name], companyId = session && session.companyId;
+    if (!companyId) return Promise.resolve(null);
+    const payload = m.toRow(row, companyId);
+    const p = row.remoteId
+        ? BiscsBackend.update(m.table, { id: row.remoteId }, payload)
+        : BiscsBackend.insert(m.table, [payload]);
+    return p.then(out => {
+        const made = out && out[0];
+        if (made && made.id && !row.remoteId) row.remoteId = made.id;
+        row.remote = true;
+        return made || null;
+    }).catch(err => {
+        showToast('Saved here, but the database refused it: ' +
+            String(err && err.message || err), 'error');
+        provLog('Write failed', m.table, String(err && err.message || err));
+        return null;
+    });
+}
+function deleteRow(name, row) {
+    if (!backendLive() || !row || !row.remoteId) return Promise.resolve(false);
+    return BiscsBackend.remove(SYNC_MAP[name].table, { id: row.remoteId })
+        .then(() => true)
+        .catch(err => { showToast('The database refused the delete: ' +
+            String(err && err.message || err), 'error'); return false; });
+}
+
+var REMOTE_ROLL = null, REMOTE_SNAPSHOT = null;
 function loadRemoteEmployees() {
     if (!backendLive()) return Promise.resolve(false);
     return BiscsBackend.read('employees').then(rows => {
@@ -20221,7 +20545,7 @@ function startRemoteSession(user, modules) {
     // already answered who the employees are, so its answer is put back on top
     // -- otherwise the restore would quietly undo it and we would be looking
     // for a uuid among made-up people again.
-    if (REMOTE_ROLL) employees = REMOTE_ROLL.slice();
+    applyRemoteSnapshot();
     usersSyncedThisSession = true;
     syncUsersFromBackend().then(ok => { if (ok && session && session.role === 'super') refreshProviderViews(); });
     applySessionRole(user.role);
