@@ -16,7 +16,21 @@
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
--- 1. Which company? This picks yours by code -- change 'DEPL' if yours differs.
+-- WHICH COMPANY?
+--
+-- The scripts below use "the first company", which is right when you have one.
+-- Run this to see what you have -- the code is whatever YOU typed when you
+-- created it, not a value from this file:
+--
+--     select id, name, code from companies order by name;
+--
+-- With more than one company, replace the lookup with an explicit code:
+--     (select id from companies where code = 'YOUR-CODE')
+-- ---------------------------------------------------------------------------
+
+
+-- ---------------------------------------------------------------------------
+-- 1. Which company? This picks yours by code -- your company is found automatically when you have one.
 --    Run this on its own first if you want to see what you have.
 -- ---------------------------------------------------------------------------
 select id, name, code from companies order by name;
@@ -31,7 +45,7 @@ select id, name, code from companies order by name;
 --    on their menu pretending otherwise.
 -- ---------------------------------------------------------------------------
 select set_role_modules(
-    (select id from companies where code = 'DEPL'),
+    (select id from companies order by name limit 1),
     'employee',
     -- Comma at the START of each line, so commenting one out never breaks
     -- the lines around it.
@@ -56,7 +70,7 @@ select set_role_modules(
 --    would rather set those two by hand -- they are few, and they differ.
 -- ---------------------------------------------------------------------------
 -- select set_role_modules(
---     (select id from companies where code = 'DEPL'),
+--     (select id from companies order by name limit 1),
 --     'hr',
 --     array['core-hr','attendance','essl','shifts','leave','payroll','statutory',
 --           'expenses','loans','documents','letters','reports','helpdesk','workflows']
@@ -72,7 +86,7 @@ select u.email, u.role, u.all_modules,
        count(um.module_key) as modules_granted
 from app_users u
 left join user_modules um on um.user_id = u.id
-where u.company_id = (select id from companies where code = 'DEPL')
+where u.company_id = (select id from companies order by name limit 1)
 group by u.email, u.role, u.all_modules
 order by u.role, u.email;
 
@@ -98,6 +112,6 @@ order by u.role, u.email;
 -- * To drop the rule entirely, so the role has no default again:
 --
 --       delete from role_modules
---       where company_id = (select id from companies where code = 'DEPL')
+--       where company_id = (select id from companies order by name limit 1)
 --         and role = 'employee';
 -- ============================================================================

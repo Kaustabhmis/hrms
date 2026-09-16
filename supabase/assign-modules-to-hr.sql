@@ -10,6 +10,20 @@
 -- Needs setup.sql to have been run first.
 -- ============================================================================
 
+-- ---------------------------------------------------------------------------
+-- WHICH COMPANY?
+--
+-- The scripts below use "the first company", which is right when you have one.
+-- Run this to see what you have -- the code is whatever YOU typed when you
+-- created it, not a value from this file:
+--
+--     select id, name, code from companies order by name;
+--
+-- With more than one company, replace the lookup with an explicit code:
+--     (select id from companies where code = 'YOUR-CODE')
+-- ---------------------------------------------------------------------------
+
+
 
 -- ---------------------------------------------------------------------------
 -- STEP 1  What are the module keys?

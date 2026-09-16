@@ -4533,6 +4533,9 @@ let currentRole = 'admin';
 const CONTROL_ROLES = ['super', 'hr', 'admin'];
 function isControlRole(role) { return CONTROL_ROLES.indexOf(role || currentRole) !== -1; }
 // An employee with direct reports approves for their team.
+// An account with no employee record behind it reports to nobody and has
+// nobody reporting to it. Without this guard an empty empId matched every
+// employee whose managerId was also empty, and the answer came back true.
 function hasDirectReports(empId) {
     if (!empId) return false;
     return employees.some(e => e.managerId === empId && (!e.exitDate || e.exitDate >= DEMO_TODAY));
@@ -20152,9 +20155,53 @@ function signInViaBackend(email, password) {
                     const c = companies.find(y => y.id === x.company_id);
                     if (c && c.modules.indexOf(x.module_key) === -1) c.modules.push(x.module_key);
                 });
-                return { user: u, modules: res.modules };
+                return loadRemoteEmployees().then(() => ({ user: u, modules: res.modules }));
             }).catch(() => ({ user: u, modules: res.modules }));
         }).catch(() => ({ user: u, modules: res.modules }));
+    });
+}
+
+// The roll, from the database.
+//
+// Without this the browser kept the seeded demo people while the account named
+// a uuid, so the two never met: the person could not be found, and everything
+// keyed to "who am I" -- their attendance, their leave, their payslip, whether
+// they approve anybody -- was answered about somebody else. Row-level security
+// decides which rows come back, so an employee gets themselves, their manager
+// and their team, and HR gets the company.
+// Silence here is what made the old bug invisible. If the account names an
+// employee the roll does not contain, every self-service screen will be empty
+// and no error will explain it -- so it says so.
+function warnIfIdentityUnresolved(user) {
+    if (!user || user.role === 'super') return;
+    if (loggedInUser && loggedInUser.id) return;
+    showToast('This login is not linked to an employee record, so your own attendance, leave and ' +
+        'payslips have nothing to show. Ask HR to link it in Logins & Access.', 'warning');
+    provLog('Identity unresolved', user.email, 'employee_id ' + (user.empId || '(none)') + ' not on the roll');
+}
+
+var REMOTE_ROLL = null;
+function loadRemoteEmployees() {
+    if (!backendLive()) return Promise.resolve(false);
+    return BiscsBackend.read('employees').then(rows => {
+        if (!rows) return false;
+        // The database is the roll now, so the seeded demo people go. Keeping
+        // them would leave two Aarav Sharmas and a headcount nobody can explain.
+        REMOTE_ROLL = rows.map(r => ({
+            id: r.id, remoteId: r.id, code: r.code, name: r.name,
+            email: r.email || '', role: r.designation || 'Employee', dept: r.dept || '',
+            grade: r.grade || '', managerId: r.manager_id || '',
+            type: r.emp_type || 'Full-Time (W2)', gender: r.gender || '',
+            fatherName: r.father_name || '', dob: r.dob || '', ctc: Number(r.ctc) || 0,
+            pan: r.pan || '', uan: r.uan || '', esicNo: r.esic_no || '', bank: r.bank || '',
+            doj: r.doj || '', exitDate: r.exit_date || '', location: r.location || '',
+            status: r.status || 'Confirmed', domebox: !!r.domebox, remote: true
+        }));
+        employees = REMOTE_ROLL.slice();
+        return true;
+    }).catch(err => {
+        showToast('Could not read the employee list: ' + String(err && err.message || err), 'error');
+        return false;
     });
 }
 // Start a session whose entitlement came from the database, not from here.
@@ -20169,10 +20216,17 @@ function startRemoteSession(user, modules) {
         activeCompanyId = session.companyId;
     }
     loadTenantData();
+    // loadTenantData restores this company's collections from browser storage,
+    // and that storage still holds the seeded demo roll. The database has
+    // already answered who the employees are, so its answer is put back on top
+    // -- otherwise the restore would quietly undo it and we would be looking
+    // for a uuid among made-up people again.
+    if (REMOTE_ROLL) employees = REMOTE_ROLL.slice();
     usersSyncedThisSession = true;
     syncUsersFromBackend().then(ok => { if (ok && session && session.role === 'super') refreshProviderViews(); });
     applySessionRole(user.role);
     bindIdentityToEmployee(user);
+    warnIfIdentityUnresolved(user);
     renderWhoBar();
     document.getElementById('auth-gate').style.display = 'none';
     document.getElementById('auth-pass').value = '';
@@ -20241,7 +20295,13 @@ function applySessionRole(role) {
 function bindIdentityToEmployee(user) {
     let emp = user.empId ? empById(user.empId) : null;
     if (!emp && user.role !== 'super') emp = employees.find(e => (e.email || '').toLowerCase() === user.email) || null;
-    if (!emp) emp = employees[0] || null;
+    // No fallback to employees[0]. That line was a data leak wearing a
+    // convenience: when the account named an employee this browser did not
+    // hold -- which is every remote sign-in, because the id is a uuid and the
+    // local roll was the seeded demo -- the person silently became whoever
+    // happened to be first. They saw that stranger's attendance, leave and
+    // payslips, and inherited their direct reports, which made a plain
+    // employee an approver. Nobody is better than the wrong body.
     if (emp) loggedInUser = { id: emp.id, name: emp.name, role: emp.role };
     else loggedInUser = { id: '', name: user.name, role: user.role };
     if (!isControlRole()) initESS();
@@ -21057,6 +21117,24 @@ function userCoherenceWarnings(d) {
         out.push({ level: 'warn', missing: 'attendance', missingName: 'Time & Attendance',
             text: who + ' cannot clock in or out, or see their own attendance.',
             suggest: 'Employees expected to mark attendance need this.' });
+
+    // The mismatch that wastes an afternoon: granting an employee the modules
+    // that run a company. Access needs BOTH gates open -- the module, and a role
+    // allowed on its screens -- and ticking modules alone silently does nothing.
+    // Everything below is the module, so the role is the half being forgotten.
+    if (d.role === 'employee') {
+        const controlOnly = ['payroll', 'statutory', 'essl', 'recruitment', 'letters',
+                             'compensation', 'offboarding', 'analytics', 'reports', 'audit', 'assets'];
+        const wasted = controlOnly.filter(k => granted.indexOf(k) !== -1);
+        if (wasted.length)
+            out.push({ level: 'danger', missing: '', missingName: 'the role',
+                text: 'The Role above is Employee, and ' + wasted.length +
+                      ' of the modules ticked below only open screens HR and Admin may use \u2014 ' +
+                      wasted.map(moduleName).join(', ') + '. For an Employee those screens will not ' +
+                      'appear at all, however many modules are ticked.',
+                suggest: 'If this person runs HR, set the Role above to HR or Admin. ' +
+                         'If they do not, untick those modules.' });
+    }
     return out;
 }
 function toggleUserModule(key, on) {
