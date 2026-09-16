@@ -8793,7 +8793,9 @@ function saveAdjustment() {
         by: session ? session.email : 'HR', on: DEMO_TODAY
     };
     const existing = id ? payrollAdjustments.findIndex(a => a.id === id) : -1;
-    if (existing >= 0) payrollAdjustments[existing] = rec; else payrollAdjustments.push(rec);
+    if (existing >= 0) { rec.remoteId = payrollAdjustments[existing].remoteId; payrollAdjustments[existing] = rec; }
+    else payrollAdjustments.push(rec);
+    pushAdjustment(rec);
     audit(existing >= 0 ? 'Salary line changed' : 'Salary line added',
         empName(rec.empId) + ' · ' + (rec.kind === 'deduction' ? '-' : '+') + fmtINR(rec.amount) +
         ' · ' + rec.label + ' · ' + periodMeta(rec.period).label, 'Payroll');
@@ -8808,6 +8810,7 @@ function deleteAdjustment(id) {
     if (!a) return;
     if (!confirm('Remove "' + a.label + '" (' + fmtINR(a.amount) + ') for ' + empName(a.empId) + '?')) return;
     payrollAdjustments = payrollAdjustments.filter(x => x.id !== id);
+    deleteAdjustmentRemote(a);
     audit('Salary line removed', empName(a.empId) + ' · ' + a.label + ' · ' + fmtINR(a.amount), 'Payroll');
     closeModal('modal-adjust');
     recomputeAfterAdjustment();
@@ -9712,6 +9715,10 @@ function executeFinalPayroll() {
         rows: currentPayrollData.map(r => JSON.parse(JSON.stringify(r))),
         totals: payrollTotals(currentPayrollData)
     };
+    // The payslips go to the database now, while the numbers are in hand. If
+    // this fails the message says so and says not to release them, because a
+    // payslip that exists on one laptop is not a payslip.
+    pushPayrollRun(activePayrollPeriod, payrollPeriods[activePayrollPeriod]);
 
     // Post loan recoveries against each active loan.
     currentPayrollData.forEach(row => {
@@ -9764,6 +9771,7 @@ function reopenPayroll() {
         salaryRevisions.forEach(r => { if (r.processedIn === activePayrollPeriod) { r.status = 'Pending Arrears'; delete r.processedIn; } });
         delete payrollPeriods[activePayrollPeriod];
     }
+    reopenPayrollRemote(activePayrollPeriod);
     audit('Payroll period reopened', meta.label, 'Payroll');
     payrollStage = 0;
     initPayrollEngine();
@@ -20409,6 +20417,219 @@ function localEmpId(remoteId) {
     return e ? e.id : remoteId;
 }
 
+// ---------------------------------------------------------------- payroll --
+// Payroll is not another collection. A payslip is a statutory record: it has to
+// reproduce in five years, after every rate in STAT_CONFIG has moved, and it
+// must not be quietly editable once it is out. So the run is stored with the
+// configuration it was computed under, and the database refuses to let an
+// executed row change -- there is a trigger on payroll_rows that raises if its
+// period is Executed.
+//
+// Which fixes the order of the three writes, and it is not the obvious one:
+//
+//     1. the period, as Computed        (a locked period would reject the rows)
+//     2. the rows
+//     3. the period again, as Executed  (the lock goes on last)
+//
+// Doing it the natural way round -- mark it executed, then save the payslips --
+// fails on the first row, every time.
+function pushPayrollRun(period, run) {
+    if (!backendLive() || !session || !session.companyId) return Promise.resolve(false);
+    const cid = session.companyId;
+    const snapshot = {
+        stat: typeof STAT_CONFIG !== 'undefined' ? STAT_CONFIG : null,
+        ctc: typeof ctcStructure !== 'undefined' ? ctcStructure : null,
+        formulas: typeof formulaComponents !== 'undefined' ? formulaComponents : null,
+        executedBy: session.email, executedOn: run.executedOn || DEMO_TODAY
+    };
+
+    // Resolve every employee BEFORE anything is written. A run that can only
+    // half-map its people must not reach the database at all: a period holding
+    // 40 of 43 payslips looks executed, reads as complete, and pays three
+    // people nothing. Refusing the whole thing is the recoverable failure.
+    const src = run.rows || [];
+    const unresolved = [];
+    const rows = src.map(r => {
+        const uuid = remoteIdOf(r.empId);
+        if (!uuid) { unresolved.push(empName(r.empId) || r.empId); return null; }
+        return {
+            company_id: cid,
+            employee_id: uuid,
+            payable_days: (r.muster && r.muster.payableDays) || 0,
+            lop_days: (r.muster && r.muster.lop) || 0,
+            gross_earned: Math.round(r.grossEarned || 0),
+            total_earnings: Math.round(totalEarningsOf(r)),
+            total_deductions: Math.round(totalDeductionsOf(r)),
+            net_pay: Math.round(r.netPay || 0),
+            earnings: r.earned || {},
+            deductions: r.deductions || {},
+            employer: r.employer || {},
+            // The whole row, so the payslip redraws exactly as it was rather
+            // than being recomputed from today's rates.
+            detail: r
+        };
+    });
+    if (unresolved.length) {
+        showToast('Payroll was NOT saved to the database: ' + unresolved.length + ' of ' + src.length +
+                  ' payslip(s) have no matching employee there (' + unresolved.slice(0, 3).join(', ') +
+                  (unresolved.length > 3 ? '…' : '') + '). Sign out and in to refresh the roll, then re-run. ' +
+                  'Do not release these payslips.', 'error');
+        provLog('Payroll sync refused', period, unresolved.length + ' unmatched employee(s)');
+        return Promise.resolve(false);
+    }
+
+    return BiscsBackend.read('payroll_periods', { where: { period: period } })
+        .then(list => {
+            const existing = (list || [])[0];
+            // The database lock is the real one, and it is not ours to lift on
+            // the way past. Writing 'Computed' over an Executed period would
+            // release the trigger and let a released payroll be rewritten in
+            // silence -- which is exactly what the lock exists to stop.
+            // Reopening is a deliberate act with its own button.
+            if (existing && existing.status === 'Executed') {
+                showToast(periodMeta(period).label + ' is already executed and locked in the database. ' +
+                          'Reopen the period first if it has to change.', 'error');
+                provLog('Payroll sync refused', period, 'period already Executed in the database');
+                return null;
+            }
+            const body = { company_id: cid, period: period, status: 'Computed',
+                           config_snapshot: snapshot };
+            return existing
+                ? BiscsBackend.update('payroll_periods', { id: existing.id }, body).then(() => existing.id)
+                : BiscsBackend.insert('payroll_periods', [body]).then(r => r && r[0] && r[0].id);
+        })
+        .then(periodId => {
+            if (periodId === null) return null;   // refused above
+            if (!periodId) throw new Error('The database did not return a period id.');
+            // A re-run replaces the rows. Allowed only because the period is
+            // Computed at this moment -- once it is Executed the delete is
+            // refused too, which is the point.
+            return BiscsBackend.remove('payroll_rows', { period_id: periodId })
+                .catch(() => true)
+                .then(() => {
+                    const body = rows.map(r => Object.assign({ period_id: periodId }, r));
+                    if (!body.length) return periodId;
+                    const chunks = [];
+                    for (let i = 0; i < body.length; i += 200) chunks.push(body.slice(i, i + 200));
+                    return chunks.reduce((chain, c) => chain.then(() =>
+                        BiscsBackend.insert('payroll_rows', c)), Promise.resolve()).then(() => periodId);
+                });
+        })
+        .then(periodId => {
+            if (periodId === null) return false;
+            return BiscsBackend.update('payroll_periods', { id: periodId }, {
+                status: 'Executed',
+                executed_on: new Date().toISOString(),
+                executed_by: session.email
+            }).then(() => {
+                showToast('Payroll saved to the database and locked.', 'success');
+                return true;
+            });
+        })
+        .catch(err => {
+            showToast('Payroll ran here but did NOT reach the database: ' +
+                String(err && err.message || err) + ' — do not release the payslips yet.', 'error');
+            provLog('Payroll sync failed', period, String(err && err.message || err));
+            return false;
+        });
+}
+// Reopening is the only way past the lock, and it has to happen in the
+// database too -- otherwise the period is open on this laptop and still
+// Executed everywhere else, and the corrected run is refused.
+function reopenPayrollRemote(period) {
+    if (!backendLive() || !session || !session.companyId) return Promise.resolve(false);
+    return BiscsBackend.read('payroll_periods', { where: { period: period } })
+        .then(list => {
+            const existing = (list || [])[0];
+            if (!existing) return false;
+            // Status first: while it reads Executed the trigger refuses the
+            // row delete, so the unlock has to land before the rows go.
+            return BiscsBackend.update('payroll_periods', { id: existing.id },
+                    { status: 'Draft', executed_on: null, executed_by: null })
+                .then(() => BiscsBackend.remove('payroll_rows', { period_id: existing.id }))
+                .then(() => true);
+        })
+        .catch(err => {
+            showToast(periodMeta(period).label + ' was reopened here but NOT in the database: ' +
+                String(err && err.message || err) + ' — the corrected run will be refused until it is.', 'error');
+            provLog('Payroll reopen failed', period, String(err && err.message || err));
+            return false;
+        });
+}
+// An ad-hoc line added or deleted at run time. Small enough to write one at a
+// time, and it has to be in the database before the run reads it on another
+// machine -- otherwise the same month pays two different amounts depending on
+// which laptop pressed the button.
+function pushAdjustment(rec) {
+    if (!backendLive() || !session || !session.companyId) return Promise.resolve(false);
+    const empUuid = remoteIdOf(rec.empId);
+    if (!empUuid) { showToast('That salary line could not be saved: no matching employee.', 'error'); return Promise.resolve(false); }
+    const body = { company_id: session.companyId, employee_id: empUuid, period: rec.period,
+                   kind: rec.kind, label: rec.label, amount: Math.abs(Number(rec.amount) || 0),
+                   taxable: rec.taxable !== false, reason: rec.reason || null,
+                   created_by: rec.by || (session && session.email) || null };
+    const p = rec.remoteId
+        ? BiscsBackend.update('payroll_adjustments', { id: rec.remoteId }, body)
+        : BiscsBackend.insert('payroll_adjustments', [body]);
+    return p.then(out => { const made = out && out[0]; if (made && made.id) rec.remoteId = made.id; return true; })
+            .catch(err => { showToast('That salary line was not saved to the database: ' +
+                String(err && err.message || err), 'error'); return false; });
+}
+function deleteAdjustmentRemote(rec) {
+    if (!backendLive() || !rec || !rec.remoteId) return Promise.resolve(false);
+    return BiscsBackend.remove('payroll_adjustments', { id: rec.remoteId })
+        .then(() => true).catch(() => false);
+}
+
+function totalEarningsOf(r) {
+    const e = r.earned || {};
+    return Object.keys(e).reduce((a, k) => a + (Number(e[k]) || 0), 0) +
+           (r.variable ? (r.variable.bonus || 0) + (r.variable.arrears || 0) + (r.variable.overtime || 0) : 0) +
+           (r.reimbursements || 0) + (r.leaveEncashDue || 0) + (r.dutyAllowanceDue || 0);
+}
+function totalDeductionsOf(r) {
+    const d = r.deductions || {};
+    return Object.keys(d).reduce((a, k) => a + (Number(d[k]) || 0), 0);
+}
+
+// Read back whole, so the vault and every payslip work on another machine.
+function pullPayroll() {
+    if (!backendLive()) return Promise.resolve(false);
+    return BiscsBackend.read('payroll_periods', { limit: 200 }).then(periods => {
+        if (!periods || !periods.length) return false;
+        return BiscsBackend.read('payroll_rows', { limit: 20000 }).then(rows => {
+            const byPeriod = {};
+            (rows || []).forEach(r => { (byPeriod[r.period_id] = byPeriod[r.period_id] || []).push(r); });
+            periods.forEach(p => {
+                const mine = (byPeriod[p.id] || []).map(r => {
+                    // detail holds the row as it was computed; the columns are
+                    // the fallback if an older run was written without it.
+                    const d = r.detail && Object.keys(r.detail).length ? r.detail : {};
+                    d.empId = localEmpId(r.employee_id);
+                    if (!d.netPay) d.netPay = Number(r.net_pay) || 0;
+                    if (!d.earned) d.earned = r.earnings || {};
+                    if (!d.deductions) d.deductions = r.deductions || {};
+                    if (!d.employer) d.employer = r.employer || {};
+                    d.isProcessed = p.status === 'Executed';
+                    return d;
+                });
+                payrollPeriods[p.period] = {
+                    period: p.period, status: p.status, remoteId: p.id,
+                    executedOn: (p.executed_on || '').slice(0, 10),
+                    executedBy: p.executed_by || '',
+                    configSnapshot: p.config_snapshot || null,
+                    rows: mine,
+                    totals: typeof payrollTotals === 'function' ? payrollTotals(mine) : null
+                };
+            });
+            return true;
+        });
+    }).catch(err => {
+        provLog('Payroll read failed', '', String(err && err.message || err));
+        return false;
+    });
+}
+
 // Pulled once at sign-in. Employees first, because everything else refers to
 // them and localEmpId has nothing to work with until the roll is there.
 function pullRemoteData() {
@@ -20433,6 +20654,14 @@ function pullRemoteData() {
             BiscsBackend.read('holidays').then(rows => {
                 companyCalendar.holidays = (rows || []).map(h => ({
                     date: h.holiday_date, name: h.name, type: h.kind || 'Company' }));
+            }).catch(() => {}),
+            pullPayroll(),
+            BiscsBackend.read('payroll_adjustments', { limit: 4000 }).then(rows => {
+                payrollAdjustments = (rows || []).map(a => ({
+                    id: a.id, remoteId: a.id, empId: localEmpId(a.employee_id), period: a.period,
+                    kind: a.kind, label: a.label, amount: Number(a.amount) || 0,
+                    taxable: a.taxable !== false, reason: a.reason || '',
+                    by: a.created_by || '', on: (a.created_at || '').slice(0, 10), remote: true }));
             }).catch(() => {})
         ]);
     }).then(() => {
@@ -20446,6 +20675,8 @@ function pullRemoteData() {
             REMOTE_SNAPSHOT[SYNC_MAP[k].local] = (window[SYNC_MAP[k].local] || []).slice();
         });
         REMOTE_SNAPSHOT.companyCalendarHolidays = companyCalendar.holidays.slice();
+        REMOTE_SNAPSHOT.payrollAdjustments = (payrollAdjustments || []).slice();
+        REMOTE_SNAPSHOT.payrollPeriodsJSON = JSON.stringify(payrollPeriods);
         rebuildTodayAttendance();
         return true;
     });
@@ -20456,9 +20687,21 @@ function applyRemoteSnapshot() {
     if (!REMOTE_SNAPSHOT) return;
     Object.keys(REMOTE_SNAPSHOT).forEach(k => {
         if (k === 'companyCalendarHolidays') companyCalendar.holidays = REMOTE_SNAPSHOT[k].slice();
+        else if (k === 'payrollPeriodsJSON') {
+            // Executed runs from the database win over anything this browser
+            // remembers; a period only it has seen is left alone.
+            const fromDb = JSON.parse(REMOTE_SNAPSHOT[k] || '{}');
+            Object.keys(fromDb).forEach(per => { payrollPeriods[per] = fromDb[per]; });
+        }
         else window[k] = REMOTE_SNAPSHOT[k].slice();
     });
     rebuildTodayAttendance();
+    // currentPayrollData was built at boot, from whatever this browser had
+    // before the pull -- seeded demo people, carrying ids the database has
+    // never heard of. Left alone that stale roll is what the Execute button
+    // would run, and every one of its payslips would be refused on the way
+    // in. Rebuild the run from the roll that just arrived.
+    if (typeof initPayrollEngine === 'function') { payrollStage = 0; initPayrollEngine(); }
 }
 
 // todayAttendance is derived from the punches, so it has to be rebuilt after a
