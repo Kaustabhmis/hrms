@@ -20282,6 +20282,18 @@ function signInViaBackend(email, password) {
                     contact: r.contact || '', notes: r.notes || '', modules: [], remote: true };
                 if (c) Object.assign(c, mapped); else companies.push(mapped);
             });
+            // The demo tenant is seeded so the product has something to show
+            // before anyone connects a database. Once the database answers, it
+            // is a second "Dynamic Engineers" on the owner's console, identical
+            // to the real one and backed by nothing. It goes.
+            if ((rows || []).length) {
+                const dropped = companies.filter(c => !c.remote).map(c => c.id);
+                companies = companies.filter(c => c.remote);
+                if (dropped.indexOf(activeCompanyId) !== -1) {
+                    const home = companies.find(c => c.id === (u && u.companyId)) || companies[0];
+                    activeCompanyId = home ? home.id : '';
+                }
+            }
             return BiscsBackend.read('company_modules').then(cm => {
                 (cm || []).forEach(x => {
                     const c = companies.find(y => y.id === x.company_id);
@@ -21180,6 +21192,7 @@ function renderProviderCompanies() {
                 '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;">' +
                     (isActive ? '' : '<button class="btn btn-outline" onclick="switchTenant(\'' + c.id + '\')">Open</button>') +
                     '<button class="btn btn-primary" onclick="openCompanyEditor(\'' + c.id + '\')">Issue modules</button>' +
+                    (companies.length > 1 ? '<button class="btn btn-danger" onclick="deleteCompany(\'' + c.id + '\')">Delete</button>' : '') +
                 '</div>' +
             '</div>' +
             '<div style="margin-top:12px; display:flex; gap:6px; flex-wrap:wrap;">' +
@@ -21187,6 +21200,131 @@ function renderProviderCompanies() {
             '</div>' +
         '</div>';
     }).join('');
+}
+
+// --- Deleting a company ---------------------------------------------------
+// The heaviest button in the product. A company is not a row: it is its people,
+// their payslips, their leave balances and the accounts they sign in with, and
+// deleting it takes all of that. So it says exactly what will go, in counts,
+// before it asks -- and then it asks for the code to be typed out, because a
+// mis-click here is not recoverable.
+function companyDeleteReport(companyId) {
+    const c = companyById(companyId);
+    const users = appUsers.filter(u => u.companyId === companyId);
+    // The people are in that tenant's own store, not in memory unless it is
+    // the tenant currently open.
+    let people = 0, runs = 0;
+    if (companyId === activeCompanyId) {
+        people = employees.length;
+        runs = Object.keys(payrollPeriods).filter(k => payrollPeriods[k].status === 'Executed').length;
+    } else {
+        try {
+            const snap = JSON.parse(localStorage.getItem(tenantStoreKey(companyId)) || 'null');
+            if (snap) {
+                people = (snap.employees || []).length;
+                const pp = snap.payrollPeriods || {};
+                runs = Object.keys(pp).filter(k => pp[k].status === 'Executed').length;
+            }
+        } catch (err) { /* storage unavailable */ }
+    }
+    return { company: c, users: users, people: people, executedRuns: runs };
+}
+// The counts above come from this browser, and this browser only holds the
+// tenant that is open. With a database connected, ask it -- otherwise the
+// warning says "0 employee record(s)" over a company with forty people in it,
+// which is the one number that has to be right before someone types the code.
+function companyDeleteCounts(companyId) {
+    const local = companyDeleteReport(companyId);
+    if (!backendLive() || local.company.remote !== true) return Promise.resolve(local);
+    return Promise.all([
+        BiscsBackend.read('employees', { where: { company_id: companyId } }),
+        BiscsBackend.read('app_users', { where: { company_id: companyId } }),
+        BiscsBackend.read('payroll_periods', { where: { company_id: companyId } })
+    ]).then(([emps, users, periods]) => {
+        local.people = (emps || []).length;
+        if ((users || []).length) local.users = (users || []).map(u => ({ id: u.id, email: u.email,
+            name: u.name, role: u.role, companyId: u.company_id }));
+        local.executedRuns = (periods || []).filter(x => x.status === 'Executed').length;
+        return local;
+    }).catch(() => local);   // a failed count must not block the delete
+}
+function deleteCompany(companyId) {
+    if (!session || session.role !== 'super')
+        return showToast('Only the provider can delete a company.', 'error');
+    const c0 = companyById(companyId);
+    if (!c0) return showToast('That company no longer exists.', 'error');
+    if (companies.length === 1)
+        return showToast('This is the only company. Add another before deleting this one.', 'error');
+    return companyDeleteCounts(companyId).then(rep => confirmCompanyDelete(rep));
+}
+function confirmCompanyDelete(rep) {
+    const c = rep.company;
+    const lines = [
+        c.name + ' (' + c.code + ') will be deleted, and with it:',
+        '',
+        '  \u2022 ' + rep.people + ' employee record(s)',
+        '  \u2022 ' + rep.users.length + ' sign-in account(s): ' +
+            (rep.users.length ? rep.users.map(u => u.email || u.name || '(unnamed)').join(', ') : 'none'),
+        '  \u2022 ' + rep.executedRuns + ' executed payroll run(s) and every payslip in them',
+        '  \u2022 all attendance, leave, loans, claims and documents held for them',
+        '',
+        'This cannot be undone. Export the licence register and any payslips you',
+        'still need before you continue.'
+    ];
+    if (rep.executedRuns) lines.splice(1, 0,
+        '\u26A0 This company has executed payroll. Payslips are statutory records — ' +
+        'most employers must keep them for years after the person leaves.', '');
+    if (!confirm(lines.join('\n'))) return;
+
+    const typed = prompt('Type the company code ' + c.code + ' to confirm deletion of ' + c.name + '.');
+    if (typed === null) return;
+    if ((typed || '').trim().toUpperCase() !== String(c.code || '').toUpperCase())
+        return showToast('That is not ' + c.code + '. Nothing was deleted.', 'error');
+
+    // The database first. If it refuses, nothing here is touched -- better a
+    // company that is still there than one that is gone from this browser and
+    // alive for everybody else.
+    const remote = (backendLive() && c.remote === true)
+        ? BiscsBackend.remove('companies', { id: c.id })
+        : Promise.resolve(true);
+
+    return remote.then(() => {
+        finishCompanyDelete(c, rep);
+        // The sign-in accounts themselves live in Supabase Auth, which no
+        // browser may delete -- that needs the secret key, and the secret key
+        // belongs on a server, never in a page anyone can open. Their access
+        // is already gone: the company row they pointed at does not exist, so
+        // they sign in to nothing. Say so rather than imply they were erased.
+        if (backendLive() && rep.users.length) {
+            showToast(rep.users.length + ' sign-in(s) can no longer reach anything. To remove the ' +
+                'log-in addresses themselves, delete them in Supabase → Authentication → Users.', 'info');
+        }
+        return true;
+    }).catch(err => {
+        showToast('The database refused to delete ' + c.name + ': ' +
+            String(err && err.message || err) + ' — nothing was deleted.', 'error');
+        return false;
+    });
+}
+function finishCompanyDelete(c, rep) {
+    const companyId = c.id;
+    appUsers = appUsers.filter(u => u.companyId !== companyId);
+    companies = companies.filter(x => x.id !== companyId);
+    try { localStorage.removeItem(tenantStoreKey(companyId)); } catch (err) { /* storage unavailable */ }
+    provLog('Company deleted', c.name,
+        c.code + ' \u00B7 ' + rep.people + ' people \u00B7 ' + rep.users.length + ' accounts \u00B7 ' +
+        rep.executedRuns + ' executed run(s)');
+    audit('Company deleted', c.name + ' (' + c.code + ')', 'Provider');
+    // If the deleted company was the one on screen, the screens are now showing
+    // a tenant that does not exist. Move to another before anything redraws.
+    if (activeCompanyId === companyId) {
+        activeCompanyId = '';
+        const next = companies[0];
+        if (next) switchTenant(next.id, true);
+    }
+    saveIdentity();
+    refreshProviderViews();
+    showToast(c.name + ' deleted.', 'success');
 }
 
 // --- Company editor ------------------------------------------------------
