@@ -112,18 +112,25 @@
     return `<span class="badge badge-${tone || "gray"}">${esc(text)}</span>`;
   }
   const PLAIN_STATUS = {
-    "Draft": "Not sent yet", "Pending verification": "Waiting to be checked", "Verified": "Checked",
+    "Received": "New order", "Accepted": "Accepted", "In production": "Being made", "Ready for sale": "Ready for sale",
+    "Draft": "Not released yet", "Pending verification": "Waiting for verification", "Verified": "Verified",
     "Released": "Sent to supplier", "Cancelled": "Cancelled", "Closed": "All done",
-    "Posted": "Got it", "Reversed": "Undone", "Pending": "Waiting", "Passed": "Good",
-    "Partially passed": "Some good", "Failed": "Not good",
+    "Open": "Waiting to compare", "Ordered": "PO made",
+    "Posted": "Checked in", "Reversed": "Undone", "OK": "Count right", "Returned": "Sent back",
+    "Pending": "Waiting", "Passed": "Pass", "Partially passed": "Part pass", "Failed": "Fail",
+  };
+  const STATUS_TONE = {
+    "Received": "amber", "Accepted": "blue", "In production": "blue", "Ready for sale": "green",
+    "Draft": "gray", "Pending verification": "amber", "Verified": "blue", "Released": "green", "Cancelled": "red", "Closed": "green",
+    "Open": "amber", "Ordered": "green", "Posted": "green", "Reversed": "red", "OK": "green", "Returned": "red",
+    "Pending": "amber", "Passed": "green", "Partially passed": "amber", "Failed": "red",
   };
   const BUCKET_NAME = {
     "Unrestricted": "Ready to use", "QI": "Waiting for check", "Blocked": "Not good, send back",
     "Reserved": "Kept for a job", "WIP": "In the workshop", "FG": "Finished",
   };
   function statusBadge(s) {
-    const tone = /Released|Verified|Passed|Posted|Closed/.test(s) ? "green" : /Failed|Blocked|Cancelled|Reversed/.test(s) ? "red" : /Pending|Partially/.test(s) ? "amber" : "gray";
-    return badge(PLAIN_STATUS[s] || s, tone);
+    return badge(PLAIN_STATUS[s] || s, STATUS_TONE[s] || "gray");
   }
 
 
@@ -215,27 +222,547 @@
   // ---------- views ----------
   const VIEWS = {};
 
+  // ---------- Theory of Constraints (Goldratt) helpers ----------
+  // Buffers are split into thirds. Green = safe, Yellow = watch, Red = act now, Black = already out / late.
+  // Work is always done in buffer order: Black, then Red, then Yellow, then Green.
+  const DAY = 86400000;
+  const ZONE_RANK = { black: 0, red: 1, yellow: 2, green: 3 };
+  const ZONE_TONE = { black: "gray", red: "red", yellow: "amber", green: "green" };
+  const TIME_WORDS = { black: "Late!", red: "Hurry", yellow: "Watch", green: "On time" };
+  const STOCK_WORDS = { black: "None left", red: "Very low", yellow: "Getting low", green: "Enough" };
+  const zoneBadge = (zone, words) => `<span class="badge badge-${ZONE_TONE[zone]} zone zone-${zone}">${esc(words[zone])}</span>`;
+  const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / DAY);
+  const addDays = (n) => new Date(Date.now() + n * DAY).toISOString().slice(0, 10);
+  const roundUp = (need, moq) => (need <= 0 ? 0 : moq > 0 ? Math.ceil(need / moq) * moq : Math.ceil(need * 1000) / 1000);
+
+  // Time buffer of a customer order = days from order date to due date.
+  function timeBuffer(o) {
+    const total = Math.max(1, daysBetween(o.order_date, o.due_date));
+    const used = daysBetween(o.order_date, today());
+    const pen = used / total;
+    const zone = pen > 1 ? "black" : pen > 2 / 3 ? "red" : pen > 1 / 3 ? "yellow" : "green";
+    return { pen, zone, left: daysBetween(today(), o.due_date) };
+  }
+
+  // Latest active recipe (BOM) for each finished item.
+  function recipeMap(boms) {
+    const map = {};
+    for (const b of boms) if (!map[b.fg_item_id] || b.version > map[b.fg_item_id].version) map[b.fg_item_id] = b;
+    return map;
+  }
+  const perUnit = (l) => Number(l.qty_per) * (1 + Number(l.scrap_pct || 0) / 100);
+
+  async function loadOpenOrders() {
+    const rows = must(await sb.from("customer_order")
+      .select("id, order_no, order_date, due_date, unit, status, customer:customer_id(name), lines:customer_order_line(id, item_id, ordered_qty, accepted_qty, kitted_qty, produced_qty, item:item_id(item_code, short_name))")
+      .in("status", ["Accepted", "In production"]));
+    rows.forEach((o) => (o.tb = timeBuffer(o)));
+    rows.sort((a, b) => b.tb.pen - a.tb.pen); // most urgent first (drum sequence)
+    return rows;
+  }
+
+  // Full-kit plan: share out ready-to-use stock to order lines in buffer order, unit by unit.
+  async function loadKitPlan() {
+    const [orders, boms, bal, items] = await Promise.all([
+      loadOpenOrders(),
+      sb.from("bom_header").select("id, fg_item_id, version, lines:bom_line(component_item_id, qty_per, scrap_pct)").eq("is_active", true),
+      sb.from("stock_balance").select("item_id, unit, qty").eq("bucket", "Unrestricted"),
+      sb.from("item").select("id, item_code, short_name"),
+    ]);
+    const recipes = recipeMap(must(boms));
+    const names = {};
+    for (const i of must(items)) names[i.id] = itemLabel(i);
+    const pool = {};
+    for (const r of must(bal)) pool[r.unit + "|" + r.item_id] = Number(r.qty);
+    const plan = [];
+    for (const o of orders) {
+      for (const ln of o.lines) {
+        const remaining = Number(ln.accepted_qty || 0) - Number(ln.kitted_qty || 0);
+        if (remaining <= 0) continue;
+        const rec = recipes[ln.item_id];
+        const row = { o, ln, remaining, kits: 0, status: "No recipe", constraint: null };
+        if (rec && rec.lines.length) {
+          let possible = Infinity;
+          for (const l of rec.lines) {
+            const have = pool[o.unit + "|" + l.component_item_id] || 0;
+            const can = Math.floor(have / perUnit(l));
+            if (can < possible) { possible = can; row.constraint = names[l.component_item_id]; }
+          }
+          row.kits = Math.max(0, Math.min(remaining, possible));
+          row.status = row.kits >= remaining ? "Full kit" : row.kits > 0 ? "Part kit" : "No kit";
+          if (row.status === "Full kit") row.constraint = null;
+          for (const l of rec.lines) pool[o.unit + "|" + l.component_item_id] = (pool[o.unit + "|" + l.component_item_id] || 0) - row.kits * perUnit(l);
+        }
+        plan.push(row);
+      }
+    }
+    return plan;
+  }
+
+  // Stock buffers for materials (all units together), with 7/14/30-day need from accepted orders.
+  async function loadMaterialBuffers() {
+    const since = new Date(Date.now() - 30 * DAY).toISOString();
+    const [items, bal, use, pol, orders, boms, prs] = await Promise.all([
+      sb.from("item").select("*").order("item_code"),
+      sb.from("stock_balance").select("item_id, bucket, qty"),
+      sb.from("stock_ledger").select("item_id, qty").eq("movement_code", "ISS").eq("bucket", "Unrestricted").gte("posted_at", since),
+      sb.from("po_line").select("item_id, qty, received_qty, po:po_id(status)"),
+      loadOpenOrders(),
+      sb.from("bom_header").select("id, fg_item_id, version, lines:bom_line(component_item_id, qty_per, scrap_pct)").eq("is_active", true),
+      sb.from("purchase_requisition").select("item_id").eq("status", "Open"),
+    ]);
+    const recipes = recipeMap(must(boms));
+    const onHand = {}, onOrder = {}, used = {}, openPr = {};
+    for (const r of must(bal)) if (r.bucket === "Unrestricted" || r.bucket === "QI") onHand[r.item_id] = (onHand[r.item_id] || 0) + Number(r.qty);
+    for (const r of must(use)) used[r.item_id] = (used[r.item_id] || 0) - Number(r.qty);
+    for (const l of must(pol)) {
+      if (l.po && ["Draft", "Pending verification", "Verified", "Released"].includes(l.po.status)) {
+        onOrder[l.item_id] = (onOrder[l.item_id] || 0) + Math.max(0, Number(l.qty) - Number(l.received_qty || 0));
+      }
+    }
+    for (const p of must(prs)) openPr[p.item_id] = true;
+    const need = { 7: {}, 14: {}, 30: {} };
+    for (const o of orders) {
+      for (const ln of o.lines) {
+        const remaining = Number(ln.accepted_qty || 0) - Number(ln.kitted_qty || 0);
+        const rec = recipes[ln.item_id];
+        if (remaining <= 0 || !rec) continue;
+        for (const h of [7, 14, 30]) {
+          if (o.tb.left > h) continue;
+          for (const l of rec.lines) need[h][l.component_item_id] = (need[h][l.component_item_id] || 0) + remaining * perUnit(l);
+        }
+      }
+    }
+    const list = must(items).filter((i) => i.item_type !== "FG").map((i) => {
+      const adu = (used[i.id] || 0) / 30;
+      let target, how;
+      if (i.buffer_qty != null) { target = Number(i.buffer_qty); how = "set by you"; }
+      else if (adu > 0) { target = Math.ceil(adu * i.lead_time_days * 1.5); how = "daily use x lead time x 1.5"; }
+      else { target = Number(i.safety_stock || 0); how = "safety amount"; }
+      const have = onHand[i.id] || 0;
+      const coming = onOrder[i.id] || 0;
+      let zone;
+      if (target > 0) zone = have <= 0 ? "black" : have < target / 3 ? "red" : have < (2 * target) / 3 ? "yellow" : "green";
+      else zone = have + coming >= (need[30][i.id] || 0) ? "green" : have <= 0 ? "black" : "red";
+      const pen = target > 0 ? Math.max(0, 1 - have / target) : zone === "green" ? 0 : 1;
+      const buy = {};
+      for (const h of [7, 14, 30]) buy[h] = roundUp((need[h][i.id] || 0) + target - (have + coming), Number(i.moq || 0));
+      return { i, adu, target, how, have, coming, need: { 7: need[7][i.id] || 0, 14: need[14][i.id] || 0, 30: need[30][i.id] || 0 }, zone, pen, buy, openPr: !!openPr[i.id] };
+    });
+    list.sort((a, b) => ZONE_RANK[a.zone] - ZONE_RANK[b.zone] || b.pen - a.pen);
+    const byItem = {};
+    for (const r of list) byItem[r.i.id] = r;
+    return { list, byItem };
+  }
+
+  // ---------- Home: the 15 steps, plus today's TOC picture ----------
+  const FLOW = [
+    ["Sell", [
+      ["1", "📩", "Order from customer", "orders", "Write down a new customer order."],
+      ["2", "✅", "Accept quantity", "accept", "Say how many we will make."],
+    ]],
+    ["Plan", [
+      ["3", "📒", "Open stock ledger", "stock", "See what we have now."],
+      ["4", "🧩", "Full kit check", "kitting", "Can we make every order?"],
+      ["5", "🔮", "Material forecast", "forecast", "What we need in 7, 14 and 30 days."],
+    ]],
+    ["Buy", [
+      ["6", "📝", "PO requisition", "pr", "Ask to buy what is missing."],
+      ["7", "⚖️", "Compare and choose", "compare", "Last price, supplier and payment terms."],
+      ["8", "🧾", "Release and verify PO", "po", "Release the PO and get it verified."],
+      ["9", "📞", "PO follow-up", "followup", "Chase the supplier, write remarks with the date."],
+    ]],
+    ["Store", [
+      ["10", "📥", "Material received", "grn", "Write down what came in."],
+      ["11", "🔢", "Store check", "storecheck", "Is the count right? Yes or no."],
+      ["12", "🔬", "Quality check (IQC)", "iqc", "Pass goes on, fail goes back."],
+    ]],
+    ["Make", [
+      ["13", "🏭", "Send to production", "issue", "Send full kits only."],
+      ["14", "🛠️", "Production record", "production", "How many in process, how many finished."],
+      ["15", "🎉", "Ready for sale", "ready", "Finished goods to send to the customer."],
+    ]],
+  ];
+
   VIEWS.dashboard = async () => {
-    const steps = [
-      ["1", "📦", "Write down the things we use", "items", "Add each thing we buy or make."],
-      ["2", "🤝", "Write down our suppliers", "vendors", "Add the shops we buy from."],
-      ["3", "🧾", "Order from a supplier", "po", "Make an order and send it."],
-      ["4", "📥", "Got a delivery?", "grn", "Write down what came in."],
-      ["5", "🔬", "Check it is good", "iqc", "Say how many are good."],
-      ["6", "🏭", "Send to the workshop", "issue", "Send good things to make fans."],
-    ];
-    const extras = [
-      ["📊", "What we have", "stock"],
-      ["📈", "Can we make it?", "planning"],
-      ["↩️", "Send bad things back", "returns"],
-      ["📒", "History", "ledger"],
-    ];
+    const [plan, buf] = await Promise.all([loadKitPlan(), loadMaterialBuffers()]);
+    const orderZones = {};
+    for (const r of plan) orderZones[r.o.id] = r.o.tb.zone;
+    const lateOrders = Object.values(orderZones).filter((z) => z === "red" || z === "black").length;
+    const redMaterials = buf.list.filter((r) => r.zone === "red" || r.zone === "black").length;
+    const fullKits = plan.filter((r) => r.status === "Full kit").length;
+    const blockers = {};
+    for (const r of plan) if (r.constraint) blockers[r.constraint] = (blockers[r.constraint] || 0) + 1;
+    const top = Object.entries(blockers).sort((a, b) => b[1] - a[1])[0];
+    const card = (label, value, sub) => `<div class="card"><div class="card-body"><div class="card-label">${label}</div><div class="card-value">${fmt(value)}</div><div class="sub">${sub}</div></div></div>`;
+    const stage = (name, steps) => `<p class="flow-stage">${esc(name)}</p><div class="kid-steps">${steps.map((st) => `<a class="kid-step" href="#${st[3]}"><span class="kid-num">${st[0]}</span><span class="kid-emoji">${st[1]}</span><span class="kid-words"><strong>${esc(st[2])}</strong><span class="muted small">${esc(st[4])}</span></span></a>`).join("")}</div>`;
     return `
-      <div class="page-header"><div><h1 class="page-title">Hello! 👋</h1><p class="page-subtitle">Follow the steps in order, from 1 to 6.</p></div></div>
-      <div class="kid-steps">
-        ${steps.map((st) => `<a class="kid-step" href="#${st[3]}"><span class="kid-num">${st[0]}</span><span class="kid-emoji">${st[1]}</span><span class="kid-words"><strong>${esc(st[2])}</strong><span class="muted small">${esc(st[4])}</span></span></a>`).join("")}
+      <div class="page-header"><div><h1 class="page-title">Hello! 👋</h1><p class="page-subtitle">Follow the steps from 1 to 15. Always do red jobs first.</p></div></div>
+      <div class="cards-row">
+        ${card("Orders in red or late", lateOrders, "Make these first")}
+        ${card("Materials very low", redMaterials, "Buy or chase these first")}
+        ${card("Full kits ready", fullKits, "Can go to production now")}
+        ${card("Orders waiting for parts", plan.filter((r) => r.status !== "Full kit").length, "Not a full kit yet")}
       </div>
-      ${panel("Other things you can do", `<div class="kid-extras">${extras.map((x) => `<a class="kid-extra" href="#${x[2]}"><span>${x[0]}</span> ${esc(x[1])}</a>`).join("")}</div>`)}`;
+      ${panel("Today's constraint (the part holding us back)", top
+        ? `<p style="font-size:16px"><strong>${esc(top[0])}</strong> is stopping ${top[1]} order line(s). Buy and chase this part first. <a href="#forecast">See the forecast</a></p>`
+        : `<p class="muted">Nothing is holding back the open orders right now.</p>`)}
+      ${FLOW.map(([name, steps]) => stage(name, steps)).join("")}
+      ${panel("More", `<div class="kid-extras">
+        <a class="kid-extra" href="#returns">↩️ Send back to supplier</a>
+        <a class="kid-extra" href="#customers">🧑‍💼 Customers</a>
+        <a class="kid-extra" href="#vendors">🤝 Suppliers</a>
+        <a class="kid-extra" href="#items">📦 Things we use</a>
+        <a class="kid-extra" href="#bom">🧩 Recipes</a>
+        <a class="kid-extra" href="#ledger">📒 History</a>
+      </div>`)}`;
+  };
+
+  // ---------- 1. Order from customer ----------
+  VIEWS.orders = async (id) => {
+    if (id) return orderDetail(id);
+    const [custs, items, orders] = await Promise.all([
+      sb.from("customer").select("id, name, customer_code").order("name"),
+      sb.from("item").select("id, item_code, short_name, item_type").order("item_code"),
+      sb.from("customer_order").select("*, customer:customer_id(name)").order("created_at", { ascending: false }).limit(200),
+    ]);
+    const cs = must(custs), its = must(items).filter((i) => i.item_type === "FG" || i.item_type === "SFG"), os = must(orders);
+    const form = `
+      <form id="f-order">
+        <div class="form-grid">
+          <div class="field"><label>Customer</label><select name="customer_id" required>${opts(cs, "id", (c) => c.name, "", "Choose a customer")}</select></div>
+          <div class="field"><label>Customer's PO number</label><input name="customer_po_no" /></div>
+          <div class="field"><label>Place to make it</label><select name="unit">${unitOpts()}</select></div>
+          <div class="field"><label>When do they need it?</label><input name="due_date" type="date" required value="${addDays(14)}" /></div>
+        </div>
+        <div style="margin-top:14px">${lineInputs("l", its, [{ k: "item_id", label: "What they want" }, { k: "qty", label: "How many", type: "number" }])}</div>
+        <div class="form-actions"><button class="btn">Save the order</button></div>
+        ${cs.length ? "" : '<p class="muted small" style="margin-top:8px">No customers yet. <a href="#customers">Add a customer first.</a></p>'}
+      </form>`;
+    const rows = os.map((o) => `<tr><td class="mono"><a href="#orders/${o.id}">${esc(o.order_no)}</a></td><td>${esc(o.customer && o.customer.name)}</td><td>${dt(o.due_date)}</td><td>${["Closed", "Cancelled"].includes(o.status) ? "—" : zoneBadge(timeBuffer(o).zone, TIME_WORDS)}</td><td>${statusBadge(o.status)}</td></tr>`).join("")
+      || '<tr><td colspan="5" class="muted">No orders yet.</td></tr>';
+    return pageHeader("1. Order from customer", "Write down what the customer wants and when they need it.") + `
+      ${panel("New order", form)}
+      ${panel("Orders", `<div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Due</th><th>Time left</th><th>How it is</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+  };
+
+  async function orderDetail(id) {
+    const o = must(await sb.from("customer_order")
+      .select("*, customer:customer_id(name), lines:customer_order_line(id, ordered_qty, accepted_qty, kitted_qty, produced_qty, item:item_id(item_code, short_name))")
+      .eq("id", id).single());
+    const rows = o.lines.map((l) => `<tr><td>${esc(itemLabel(l.item))}</td><td class="num">${fmt(l.ordered_qty)}</td><td class="num">${fmt(l.accepted_qty)}</td><td class="num">${fmt(l.kitted_qty)}</td><td class="num">${fmt(l.produced_qty)}</td></tr>`).join("");
+    const tb = timeBuffer(o);
+    return pageHeader(`Order ${o.order_no}`, `${o.customer ? o.customer.name : ""} · ${o.unit} · due ${dt(o.due_date)}`, '<a class="btn-ghost" href="#orders">All orders</a>') + `
+      ${panel("Status", `<div class="row">${statusBadge(o.status)} ${["Closed", "Cancelled"].includes(o.status) ? "" : zoneBadge(tb.zone, TIME_WORDS) + ` <span class="muted">${tb.left >= 0 ? tb.left + " day(s) left" : -tb.left + " day(s) late"}</span>`}</div>`)}
+      ${panel("Lines", `<div class="table-wrap"><table><thead><tr><th>What</th><th class="num">Ordered</th><th class="num">Accepted</th><th class="num">Sent to production</th><th class="num">Finished</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+  }
+
+  // ---------- 2. Accept quantity ----------
+  VIEWS.accept = async () => {
+    const os = must(await sb.from("customer_order")
+      .select("*, customer:customer_id(name), lines:customer_order_line(id, ordered_qty, item:item_id(item_code, short_name))")
+      .eq("status", "Received").order("due_date"));
+    const blocks = os.map((o) => {
+      const rows = o.lines.map((l) => `<tr><td>${esc(itemLabel(l.item))}</td><td class="num">${fmt(l.ordered_qty)}</td><td><input data-line="${l.id}" type="number" min="0" max="${l.ordered_qty}" step="any" value="${l.ordered_qty}" /></td></tr>`).join("");
+      return `<section class="panel"><div class="panel-header"><h3>${esc(o.order_no)} · ${esc(o.customer && o.customer.name)}</h3><div class="actions">${zoneBadge(timeBuffer(o).zone, TIME_WORDS)}</div></div><div class="panel-body">
+        <p class="muted small">Due ${dt(o.due_date)} at ${esc(o.unit)}</p>
+        <div class="table-wrap"><table><thead><tr><th>What</th><th class="num">They asked for</th><th>We accept</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="form-actions"><button class="btn" data-act="accept-order" data-id="${o.id}" data-done="Order accepted!">Accept</button></div></div></section>`;
+    }).join("");
+    return pageHeader("2. Accept quantity", "Say how many we will really make for each new order.") + (blocks || panel("Nothing to accept", '<p class="muted">No new orders. <a href="#orders">Write down an order first.</a></p>'));
+  };
+
+  // ---------- 4. Full kit check ----------
+  VIEWS.kitting = async () => {
+    const plan = await loadKitPlan();
+    const tone = { "Full kit": "green", "Part kit": "amber", "No kit": "red", "No recipe": "gray" };
+    const rows = plan.map((r) => `<tr><td class="mono"><a href="#orders/${r.o.id}">${esc(r.o.order_no)}</a></td><td>${esc(itemLabel(r.ln.item))}</td><td>${esc(r.o.unit)}</td><td>${zoneBadge(r.o.tb.zone, TIME_WORDS)}</td><td class="num">${fmt(r.remaining)}</td><td class="num">${fmt(r.kits)}</td><td>${badge(r.status, tone[r.status])}</td><td>${r.constraint ? esc(r.constraint) : "—"}</td></tr>`).join("")
+      || '<tr><td colspan="8" class="muted">No accepted orders waiting for parts.</td></tr>';
+    return pageHeader("4. Full kit check", "The most urgent order gets the parts first. A job only starts when every part is there.") + `
+      ${panel("Can we make every order?", `<div class="table-wrap"><table><thead><tr><th>Order</th><th>What</th><th>Place</th><th>Time left</th><th class="num">Still to make</th><th class="num">Full kits now</th><th>Kit</th><th>Part holding us back</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <p class="muted small" style="margin-top:10px">"Part holding us back" is the constraint: the one part that stops more kits. Buy and chase it first. <a href="#issue">Send full kits to production</a></p>`)}`;
+  };
+
+  // ---------- 5. Material forecast (7 / 14 / 30 days) with stock buffers ----------
+  VIEWS.forecast = async (_id, params) => {
+    const h = [7, 14, 30].includes(Number(params.get("h"))) ? Number(params.get("h")) : 14;
+    const unit = params.get("unit") || UNITS[0];
+    const { list } = await loadMaterialBuffers();
+    const filter = `<form id="f-forecastfilter" class="inline-form">
+      <div class="field"><label>Look ahead</label><select name="h">${[7, 14, 30].map((d) => `<option value="${d}"${d === h ? " selected" : ""}>${d} days</option>`).join("")}</select></div>
+      <div class="field"><label>Deliver to</label><select name="unit">${UNITS.map((u) => `<option value="${u}"${u === unit ? " selected" : ""}>${u}</option>`).join("")}</select></div></form>`;
+    const rows = list.map((r) => {
+      const buy = r.buy[h];
+      const action = r.openPr
+        ? '<span class="muted small">Requisition open</span>'
+        : buy > 0
+          ? `<button class="btn" data-act="make-pr" data-id="${r.i.id}" data-qty="${buy}" data-unit="${esc(unit)}" data-days="${r.i.lead_time_days}" data-reason="Forecast ${h} days, buffer ${STOCK_WORDS[r.zone]}" data-done="Requisition made!">Ask to buy ${fmt(buy)}</button>`
+          : '<span class="muted small">Nothing to buy</span>';
+      const dbm = r.target > 0
+        ? `<button class="btn-ghost" data-act="buf-up" data-id="${r.i.id}" data-target="${r.target}" data-done="Buffer made bigger" title="Use when it keeps going red">+⅓</button> <button class="btn-ghost" data-act="buf-down" data-id="${r.i.id}" data-target="${r.target}" data-done="Buffer made smaller" title="Use when it stays green for a long time">−⅓</button>`
+        : "";
+      return `<tr><td>${esc(itemLabel(r.i))}</td><td>${zoneBadge(r.zone, STOCK_WORDS)}</td><td class="num">${fmt(r.have)}</td><td class="num">${fmt(r.coming)}</td><td class="num">${fmt(r.need[7])}</td><td class="num">${fmt(r.need[14])}</td><td class="num">${fmt(r.need[30])}</td><td class="num" title="${esc(r.how)}">${fmt(r.target)}</td><td class="num">${fmt(r.adu)}</td><td>${action}</td><td>${dbm}</td></tr>`;
+    }).join("") || '<tr><td colspan="11" class="muted">No materials yet. <a href="#items">Add the things we use.</a></td></tr>';
+    return pageHeader("5. Material forecast", "What we need for accepted orders in 7, 14 and 30 days, from the recipes and what we have.") + `
+      ${panel("Materials, most urgent first", `${filter}<div class="table-wrap"><table><thead><tr><th>Thing</th><th>Buffer</th><th class="num">Have now</th><th class="num">On order</th><th class="num">Need 7 days</th><th class="num">Need 14 days</th><th class="num">Need 30 days</th><th class="num">Buffer size</th><th class="num">Used per day</th><th></th><th>Buffer size</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <p class="muted small" style="margin-top:10px">Buffer size = used per day x lead time x 1.5 (or the size you set). Buffer colours: Enough (top third), Getting low (middle third), Very low (bottom third), None left. Buy = need in ${h} days + buffer size - (have now + on order), rounded up to the smallest order amount. If a buffer keeps going red, press +⅓. If it stays green for a long time, press −⅓.</p>`)}`;
+  };
+
+  // ---------- 6. PO requisition ----------
+  VIEWS.pr = async () => {
+    const [prs, items, buf] = await Promise.all([
+      sb.from("purchase_requisition").select("*, item:item_id(item_code, short_name, stock_uom), po:po_id(po_no)").order("created_at", { ascending: false }).limit(300),
+      sb.from("item").select("id, item_code, short_name, item_type").order("item_code"),
+      loadMaterialBuffers(),
+    ]);
+    const list = must(prs);
+    list.sort((a, b) => (a.status === "Open" ? 0 : 1) - (b.status === "Open" ? 0 : 1) || ZONE_RANK[(buf.byItem[a.item_id] || {}).zone || "green"] - ZONE_RANK[(buf.byItem[b.item_id] || {}).zone || "green"]);
+    const form = `
+      <form id="f-pr" class="form-grid">
+        <div class="field" style="grid-column:1/-1"><label>Thing</label><select name="item_id" required>${opts(must(items).filter((i) => i.item_type !== "FG"), "id", itemLabel, "", "Choose a thing")}</select></div>
+        <div class="field"><label>How many</label><input name="qty" type="number" step="any" min="0.001" required /></div>
+        <div class="field"><label>Deliver to</label><select name="unit">${unitOpts()}</select></div>
+        <div class="field"><label>Needed by</label><input name="needed_by" type="date" value="${addDays(7)}" /></div>
+        <div class="field"><label>Why</label><input name="reason" placeholder="For example: order SO/2627/00001" /></div>
+        <div class="form-actions"><button class="btn">Make requisition</button></div>
+      </form>`;
+    const rows = list.map((p) => {
+      const z = buf.byItem[p.item_id];
+      return `<tr><td class="mono">${esc(p.pr_no)}</td><td>${esc(itemLabel(p.item))}</td><td class="num">${fmt(p.qty)}</td><td>${p.item ? p.item.stock_uom : ""}</td><td>${dt(p.needed_by)}</td><td>${z ? zoneBadge(z.zone, STOCK_WORDS) : "—"}</td><td>${esc(p.reason) || "—"}</td><td>${statusBadge(p.status)}</td><td>${p.status === "Open" ? `<a class="btn" href="#compare">Compare</a> <button class="btn-ghost" data-act="pr-cancel" data-id="${p.id}" data-confirm="Cancel this requisition?" data-title="Cancel requisition" data-done="Requisition cancelled">Cancel</button>` : p.po ? `<span class="muted small">${esc(p.po.po_no)}</span>` : ""}</td></tr>`;
+    }).join("") || '<tr><td colspan="9" class="muted">No requisitions yet. Make them from the <a href="#forecast">forecast</a> or here.</td></tr>';
+    return pageHeader("6. PO requisition", "A list of things we need to buy. Most are made from the forecast with one click.") + `
+      ${panel("Ask to buy something", form)}
+      ${panel("Requisitions", `<div class="table-wrap"><table><thead><tr><th>No</th><th>Thing</th><th class="num">How many</th><th>Unit</th><th>Needed by</th><th>Buffer</th><th>Why</th><th>How it is</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+  };
+
+  // ---------- 7. Compare last purchase: vendor, rate and payment terms ----------
+  VIEWS.compare = async () => {
+    const [prs, vendors, history, buf] = await Promise.all([
+      sb.from("purchase_requisition").select("*, item:item_id(item_code, short_name, stock_uom)").eq("status", "Open").order("needed_by"),
+      sb.from("vendor").select("id, name, vendor_code, payment_terms").order("name"),
+      sb.from("po_line").select("item_id, qty, rate, po:po_id(po_no, po_date, status, vendor:vendor_id(id, name, payment_terms))"),
+      loadMaterialBuffers(),
+    ]);
+    const vs = must(vendors);
+    const hist = {};
+    for (const l of must(history)) {
+      if (!l.po || ["Draft", "Cancelled"].includes(l.po.status)) continue;
+      (hist[l.item_id] = hist[l.item_id] || []).push(l);
+    }
+    const list = must(prs);
+    list.sort((a, b) => ZONE_RANK[(buf.byItem[a.item_id] || {}).zone || "green"] - ZONE_RANK[(buf.byItem[b.item_id] || {}).zone || "green"]);
+    const blocks = list.map((p) => {
+      const past = (hist[p.item_id] || []).sort((a, b) => String(b.po.po_date).localeCompare(String(a.po.po_date))).slice(0, 5);
+      const last = past[0];
+      const cheapest = past.reduce((m, l) => (m == null || Number(l.rate) < Number(m.rate) ? l : m), null);
+      const z = buf.byItem[p.item_id];
+      const histRows = past.map((l) => `<tr><td>${dt(l.po.po_date)}</td><td class="mono">${esc(l.po.po_no)}</td><td>${esc(l.po.vendor && l.po.vendor.name)}${l === cheapest ? " " + badge("Cheapest", "green") : ""}${l === last ? " " + badge("Last", "blue") : ""}</td><td class="num">${money(l.rate)}</td><td class="num">${fmt(l.qty)}</td><td>${esc(l.po.vendor && l.po.vendor.payment_terms) || "—"}</td></tr>`).join("")
+        || '<tr><td colspan="6" class="muted">Never bought before.</td></tr>';
+      const vendorSel = `<select name="vendor" required>${opts(vs, "id", (v) => `${v.name}${v.payment_terms ? " (" + v.payment_terms + ")" : ""}`, last && last.po.vendor ? last.po.vendor.id : "", "Choose a supplier")}</select>`;
+      return `<section class="panel"><div class="panel-header"><h3>${esc(p.pr_no)} · ${esc(itemLabel(p.item))} · ${fmt(p.qty)} ${p.item ? p.item.stock_uom : ""}</h3><div class="actions">${z ? zoneBadge(z.zone, STOCK_WORDS) : ""}</div></div><div class="panel-body">
+        <p class="muted small">Needed by ${dt(p.needed_by)} at ${esc(p.unit)}. ${esc(p.reason || "")}</p>
+        <div class="table-wrap"><table><thead><tr><th>Date</th><th>PO</th><th>Supplier</th><th class="num">Price each</th><th class="num">How many</th><th>Payment terms</th></tr></thead><tbody>${histRows}</tbody></table></div>
+        <div class="inline-form" style="margin-top:12px">
+          <div class="field" style="min-width:280px"><label>Choose supplier</label>${vendorSel}</div>
+          <div class="field"><label>Price each</label><input name="rate" type="number" step="any" min="0" value="${last ? last.rate : ""}" /></div>
+          <div class="form-actions"><button class="btn" data-act="pr-to-po" data-id="${p.id}" data-done="PO made! Now release it for verification.">Make PO</button></div>
+        </div></div></section>`;
+    }).join("");
+    return pageHeader("7. Compare and choose", "Look at the last purchases of the same thing: supplier, price and payment terms. Then make the PO.") + (blocks || panel("Nothing to compare", '<p class="muted">No open requisitions. <a href="#pr">Make a requisition first.</a></p>'));
+  };
+
+  // ---------- 8. Release PO and send for verification ----------
+  VIEWS.po = async (id) => {
+    if (id) return poDetail(id);
+    const [pos, uid] = await Promise.all([
+      sb.from("purchase_order").select("*, vendor:vendor_id(name), lines:po_line(qty, rate, item:item_id(item_code, short_name))").order("created_at", { ascending: false }).limit(300),
+      currentUserId(),
+    ]);
+    const order = { "Draft": 0, "Pending verification": 1, "Verified": 2, "Released": 3, "Closed": 4, "Cancelled": 5 };
+    const ps = must(pos).sort((a, b) => order[a.status] - order[b.status]);
+    const actionFor = (p) => {
+      if (p.status === "Draft") return `<button class="btn" data-act="po-submit" data-id="${p.id}" data-done="Released for verification!">Release for verification</button>`;
+      if (p.status === "Pending verification") return `<button class="btn" data-act="po-verify" data-id="${p.id}" data-done="Verified!">Verify</button>`;
+      if (p.status === "Verified") return p.created_by === uid
+        ? '<span class="muted small">Someone else must send it (you made it)</span>'
+        : `<button class="btn" data-act="po-release" data-id="${p.id}" data-confirm="Send this PO to the supplier now?" data-title="Send PO" data-done="Sent to the supplier!">Send to supplier</button>`;
+      if (p.status === "Released") return '<a class="btn-ghost" href="#followup">Follow up</a>';
+      return "";
+    };
+    const rows = ps.map((p) => {
+      const total = (p.lines || []).reduce((s, l) => s + Number(l.qty) * Number(l.rate), 0);
+      const what = (p.lines || []).map((l) => `${itemLabel(l.item)} x ${fmt(l.qty)}`).join(", ");
+      return `<tr><td class="mono"><a href="#po/${p.id}">${esc(p.po_no)}</a></td><td>${esc(p.vendor && p.vendor.name)}</td><td>${esc(what)}</td><td class="num">${money(total)}</td><td>${dt(p.expected_date)}</td><td>${statusBadge(p.status)}</td><td>${actionFor(p)}</td></tr>`;
+    }).join("") || '<tr><td colspan="7" class="muted">No POs yet. Make one on <a href="#compare">Compare and choose</a>.</td></tr>';
+    return pageHeader("8. Release and verify PO", "Release the PO for verification. Someone checks supplier, price and terms. Then it is sent to the supplier.") + `
+      ${panel("Purchase orders", `<div class="table-wrap"><table><thead><tr><th>PO</th><th>Supplier</th><th>What</th><th class="num">Money</th><th>Expected</th><th>How it is</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+        <p class="muted small" style="margin-top:10px">The person who made a PO cannot be the one who sends it to the supplier.</p>`)}`;
+  };
+
+  // ---------- 9. PO follow-up and remarks with date (PO tracking) ----------
+  VIEWS.followup = async () => {
+    const [pos, fus, buf] = await Promise.all([
+      sb.from("purchase_order").select("*, vendor:vendor_id(name), lines:po_line(item_id, qty, received_qty, item:item_id(item_code, short_name))").eq("status", "Released"),
+      sb.from("po_followup").select("*").order("created_at", { ascending: false }),
+      loadMaterialBuffers(),
+    ]);
+    const notes = {};
+    for (const f of must(fus)) (notes[f.po_id] = notes[f.po_id] || []).push(f);
+    const rows = must(pos).map((p) => {
+      const open = (p.lines || []).filter((l) => Number(l.received_qty || 0) < Number(l.qty));
+      const zone = open.reduce((z, l) => { const b = buf.byItem[l.item_id]; return b && ZONE_RANK[b.zone] < ZONE_RANK[z] ? b.zone : z; }, "green");
+      const last = (notes[p.id] || [])[0];
+      const promised = (last && last.promised_date) || p.expected_date;
+      const late = promised ? daysBetween(promised, today()) : 0;
+      return { p, open, zone, last, promised, late, all: notes[p.id] || [] };
+    }).sort((a, b) => ZONE_RANK[a.zone] - ZONE_RANK[b.zone] || b.late - a.late);
+    const body = rows.map((r) => `<tr>
+      <td class="mono"><a href="#po/${r.p.id}">${esc(r.p.po_no)}</a></td><td>${esc(r.p.vendor && r.p.vendor.name)}</td>
+      <td>${esc(r.open.map((l) => `${itemLabel(l.item)}: ${fmt(Number(l.qty) - Number(l.received_qty || 0))} to come`).join(", "))}</td>
+      <td>${zoneBadge(r.zone, STOCK_WORDS)}</td>
+      <td>${dt(r.promised)}${r.late > 0 ? " " + badge(r.late + " day(s) late", "red") : ""}</td>
+      <td>${r.all.slice(0, 3).map((f) => `<div class="small"><strong>${dt(f.followup_date)}</strong> ${esc(f.remarks)}</div>`).join("") || '<span class="muted small">No follow-up yet</span>'}</td>
+      <td><input name="remarks" type="text" placeholder="What did the supplier say?" /></td>
+      <td><input name="promised" type="date" /></td>
+      <td><button class="btn" data-act="fu-save" data-id="${r.p.id}" data-done="Follow-up saved!">Save</button></td></tr>`).join("")
+      || '<tr><td colspan="9" class="muted">No POs to chase. POs appear here after they are sent to the supplier.</td></tr>';
+    return pageHeader("9. PO follow-up", "Chase the supplier and write what they said, with the date. Chase red ones first.") + `
+      ${panel("POs waiting for material", `<div class="table-wrap"><table><thead><tr><th>PO</th><th>Supplier</th><th>Still to come</th><th>Buffer</th><th>Promised</th><th>Last remarks</th><th>New remark</th><th>New promised date</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`)}`;
+  };
+
+  // ---------- 10. Material received at store ----------
+  VIEWS.grn = async (id) => {
+    if (id) return grnDetail(id);
+    const [vendors, items, pos, grns] = await Promise.all([
+      sb.from("vendor").select("id, name, vendor_code").order("name"),
+      sb.from("item").select("id, item_code, short_name").order("item_code"),
+      sb.from("purchase_order").select("id, po_no, vendor:vendor_id(name)").eq("status", "Released").order("po_no"),
+      sb.from("grn").select("*, vendor:vendor_id(name)").order("created_at", { ascending: false }).limit(200),
+    ]);
+    const vs = must(vendors), its = must(items), ps = must(pos), gs = must(grns);
+    const form = `
+      <form id="f-grn">
+        <div class="form-grid">
+          <div class="field"><label>Which PO did it come for?</label><select name="po_id">${opts(ps, "id", (p) => `${p.po_no} (${p.vendor ? p.vendor.name : ""})`, "", "No PO")}</select></div>
+          <div class="field"><label>Supplier</label><select name="vendor_id" required>${opts(vs, "id", (v) => v.name, "", "Choose a supplier")}</select></div>
+          <div class="field"><label>Place</label><select name="unit">${unitOpts()}</select></div>
+          <div class="field"><label>Date it came</label><input name="received_on" type="date" value="${today()}" required /></div>
+        </div>
+        <p class="muted small" style="margin-top:8px">Choose the PO and the list fills itself.</p>
+        <div style="margin-top:10px">${lineInputs("l", its, [{ k: "item_id", label: "Thing" }, { k: "qty", label: "How many on the challan", type: "number" }, { k: "batch_no", label: "Batch (optional)" }])}</div>
+        <div class="form-actions"><button class="btn">Save the delivery</button></div>
+      </form>`;
+    const rows = gs.map((g) => `<tr><td class="mono"><a href="#grn/${g.id}">${esc(g.grn_no)}</a></td><td>${dt(g.received_on)}</td><td>${esc(g.vendor && g.vendor.name)}</td><td>${esc(g.unit)}</td><td>${g.status === "Draft" ? '<a class="btn" href="#storecheck">Count it</a>' : statusBadge(g.status)}</td></tr>`).join("")
+      || '<tr><td colspan="5" class="muted">No deliveries yet.</td></tr>';
+    return pageHeader("10. Material received", "Write down what came in from the supplier.") + `
+      ${panel("New delivery", form)}
+      ${panel("Deliveries", `<div class="table-wrap"><table><thead><tr><th>No</th><th>Came on</th><th>Supplier</th><th>Place</th><th>How it is</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+  };
+
+  async function grnDetail(id) {
+    const [head, lines] = await Promise.all([
+      sb.from("grn").select("*, vendor:vendor_id(name), po:po_id(po_no)").eq("id", id).single(),
+      sb.from("grn_line").select("*, item:item_id(item_code, short_name), lot:inspection_lot(status, accepted_qty, rejected_qty)").eq("grn_id", id),
+    ]);
+    const g = must(head);
+    const rows = must(lines).map((l) => {
+      const lot = l.lot && l.lot.length ? l.lot[0] : null;
+      return `<tr><td>${esc(itemLabel(l.item))}</td><td class="num">${fmt(l.qty)}</td><td>${statusBadge(l.store_check)}${l.store_remarks ? ` <span class="muted small">${esc(l.store_remarks)}</span>` : ""}</td><td>${lot ? statusBadge(lot.status) : "—"}</td><td class="num">${lot ? fmt(lot.accepted_qty) : "—"}</td><td class="num">${lot ? fmt(lot.rejected_qty) : "—"}</td></tr>`;
+    }).join("");
+    return pageHeader(`Delivery ${g.grn_no}`, `${g.vendor ? g.vendor.name : ""} · ${g.unit} · came ${dt(g.received_on)} · PO ${g.po ? g.po.po_no : "none"}`, '<a class="btn-ghost" href="#grn">All deliveries</a>') + `
+      ${g.status === "Draft" ? panel("Next step", '<a class="btn" href="#storecheck">11. Store check: count it</a>') : ""}
+      ${panel("Lines", `<div class="table-wrap"><table><thead><tr><th>Thing</th><th class="num">On challan</th><th>Store count</th><th>Quality</th><th class="num">Pass</th><th class="num">Fail</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+  }
+
+  // ---------- 11. Store entry: verify quantity (yes -> IQC, no -> back to vendor) ----------
+  VIEWS.storecheck = async () => {
+    const [drafts, returned] = await Promise.all([
+      sb.from("grn").select("*, vendor:vendor_id(name), lines:grn_line(id, qty, batch_no, item:item_id(item_code, short_name))").eq("status", "Draft").order("received_on"),
+      sb.from("grn_line").select("qty, store_remarks, item:item_id(item_code, short_name), grn:grn_id(grn_no, received_on, vendor:vendor_id(name))").eq("store_check", "Returned"),
+    ]);
+    const blocks = must(drafts).map((g) => {
+      const rows = g.lines.map((l) => `<tr><td>${esc(itemLabel(l.item))}</td><td>${esc(l.batch_no) || "—"}</td><td class="num">${fmt(l.qty)}</td>
+        <td><label class="yn"><input type="radio" name="ok_${l.id}" value="yes" checked /> Yes</label> <label class="yn"><input type="radio" name="ok_${l.id}" value="no" data-line="${l.id}" /> No</label></td></tr>`).join("");
+      return `<section class="panel"><div class="panel-header"><h3>${esc(g.grn_no)} · ${esc(g.vendor && g.vendor.name)}</h3></div><div class="panel-body">
+        <p class="muted small">Came on ${dt(g.received_on)} at ${esc(g.unit)}. Count each thing. Is it the same as the challan?</p>
+        <div class="table-wrap"><table><thead><tr><th>Thing</th><th>Batch</th><th class="num">On challan</th><th>Count is right?</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="inline-form" style="margin-top:12px"><div class="field" style="min-width:280px"><label>Note for "No" lines</label><input name="remarks" placeholder="For example: 5 short" /></div>
+        <div class="form-actions"><button class="btn" data-act="grn-check" data-id="${g.id}" data-confirm="Yes lines go to quality check. No lines go back to the supplier. Save?" data-title="Save store check" data-done="Store check saved! Yes lines are waiting for IQC.">Save store check</button></div></div>
+      </div></section>`;
+    }).join("");
+    const back = must(returned).map((l) => `<tr><td>${dt(l.grn && l.grn.received_on)}</td><td class="mono">${esc(l.grn && l.grn.grn_no)}</td><td>${esc(l.grn && l.grn.vendor && l.grn.vendor.name)}</td><td>${esc(itemLabel(l.item))}</td><td class="num">${fmt(l.qty)}</td><td>${esc(l.store_remarks) || "—"}</td></tr>`).join("")
+      || '<tr><td colspan="6" class="muted">Nothing sent back at the store.</td></tr>';
+    return pageHeader("11. Store check", "Count what came in. Right count goes to quality check (IQC). Wrong count goes back to the supplier.") +
+      (blocks || panel("Nothing to count", '<p class="muted">No new deliveries. <a href="#grn">Write down a delivery first.</a></p>')) +
+      panel("Sent back at the store (wrong count)", `<div class="table-wrap"><table><thead><tr><th>Came on</th><th>Delivery</th><th>Supplier</th><th>Thing</th><th class="num">How many</th><th>Note</th></tr></thead><tbody>${back}</tbody></table></div>`);
+  };
+
+  // ---------- 13. Send material for production (full kits only) ----------
+  VIEWS.issue = async () => {
+    const plan = await loadKitPlan();
+    const rows = plan.map((r) => {
+      const can = r.kits > 0;
+      return `<tr><td class="mono"><a href="#orders/${r.o.id}">${esc(r.o.order_no)}</a></td><td>${esc(itemLabel(r.ln.item))}</td><td>${esc(r.o.unit)}</td><td>${zoneBadge(r.o.tb.zone, TIME_WORDS)}</td><td class="num">${fmt(r.remaining)}</td><td class="num">${fmt(r.kits)}</td>
+        <td>${can ? `<input name="qty" type="number" min="1" step="1" max="${r.kits}" value="${r.kits}" />` : `<span class="muted small">${r.constraint ? "Waiting for " + esc(r.constraint) : esc(r.status)}</span>`}</td>
+        <td>${can ? `<button class="btn" data-act="kit-issue" data-id="${r.ln.id}" data-unit="${esc(r.o.unit)}" data-done="Full kit sent to production!">Send full kit</button>` : ""}</td></tr>`;
+    }).join("") || '<tr><td colspan="8" class="muted">No accepted orders waiting. <a href="#accept">Accept an order first.</a></td></tr>';
+    return pageHeader("13. Send to production", "Only send complete kits, most urgent order first. Half kits make jobs stop in the middle.") + `
+      ${panel("Orders, most urgent first", `<div class="table-wrap"><table><thead><tr><th>Order</th><th>What</th><th>Place</th><th>Time left</th><th class="num">Still to make</th><th class="num">Full kits now</th><th>How many to send</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+  };
+
+  // ---------- 14. Production record (WIP <-> process, FG) ----------
+  VIEWS.production = async () => {
+    const [orders, recs] = await Promise.all([
+      loadOpenOrders(),
+      sb.from("production_record").select("*, item:item_id(item_code, short_name), line:order_line_id(order:order_id(order_no))").order("created_at", { ascending: false }).limit(50),
+    ]);
+    const rows = [];
+    for (const o of orders) for (const ln of o.lines) {
+      const inProcess = Number(ln.kitted_qty || 0) - Number(ln.produced_qty || 0);
+      if (inProcess <= 0) continue;
+      rows.push(`<tr><td class="mono"><a href="#orders/${o.id}">${esc(o.order_no)}</a></td><td>${esc(itemLabel(ln.item))}</td><td>${esc(o.unit)}</td><td>${zoneBadge(o.tb.zone, TIME_WORDS)}</td><td class="num">${fmt(ln.kitted_qty)}</td><td class="num">${fmt(ln.produced_qty)}</td><td class="num">${fmt(inProcess)}</td>
+        <td><input name="fg" type="number" min="0" step="1" max="${inProcess}" value="0" /></td>
+        <td><input name="wip" type="number" min="0" step="1" value="${inProcess}" /></td>
+        <td><input name="rem" type="text" /></td>
+        <td><button class="btn" data-act="prod-save" data-id="${ln.id}" data-unit="${esc(o.unit)}" data-done="Production saved!">Save</button></td></tr>`);
+    }
+    const hist = must(recs).map((r) => `<tr><td>${dt(r.record_date)}</td><td class="mono">${esc(r.line && r.line.order && r.line.order.order_no)}</td><td>${esc(itemLabel(r.item))}</td><td class="num">${fmt(r.wip_qty)}</td><td class="num">${fmt(r.fg_qty)}</td><td>${esc(r.remarks) || "—"}</td></tr>`).join("")
+      || '<tr><td colspan="6" class="muted">No production records yet.</td></tr>';
+    return pageHeader("14. Production record", "Each day, write how many are still being made (WIP) and how many are finished (FG).") + `
+      ${panel("In the workshop, most urgent first", `<div class="table-wrap"><table><thead><tr><th>Order</th><th>What</th><th>Place</th><th>Time left</th><th class="num">Kits sent</th><th class="num">Finished so far</th><th class="num">In process</th><th>Finished today</th><th>Still in process</th><th>Note</th><th></th></tr></thead><tbody>${rows.join("") || '<tr><td colspan="11" class="muted">Nothing in the workshop. <a href="#issue">Send a full kit first.</a></td></tr>'}</tbody></table></div>`)}
+      ${panel("Recent records", `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Order</th><th>What</th><th class="num">In process</th><th class="num">Finished</th><th>Note</th></tr></thead><tbody>${hist}</tbody></table></div>`)}`;
+  };
+
+  // ---------- 15. Ready for sale ----------
+  VIEWS.ready = async () => {
+    const [orders, fg] = await Promise.all([
+      sb.from("customer_order").select("*, customer:customer_id(name), lines:customer_order_line(accepted_qty, produced_qty, item:item_id(item_code, short_name))").eq("status", "Ready for sale").order("due_date"),
+      sb.from("stock_balance").select("unit, qty, item:item_id(item_code, short_name)").eq("bucket", "FG").gt("qty", 0),
+    ]);
+    const blocks = must(orders).map((o) => `<tr><td class="mono"><a href="#orders/${o.id}">${esc(o.order_no)}</a></td><td>${esc(o.customer && o.customer.name)}</td><td>${esc(o.lines.map((l) => `${itemLabel(l.item)} x ${fmt(l.accepted_qty)}`).join(", "))}</td><td>${dt(o.due_date)}</td><td>${zoneBadge(timeBuffer(o).zone, TIME_WORDS)}</td>
+      <td><button class="btn" data-act="dispatch" data-id="${o.id}" data-confirm="Send these finished goods to the customer?" data-title="Send to customer" data-done="Sent to the customer!">Send to customer</button></td></tr>`).join("")
+      || '<tr><td colspan="6" class="muted">No orders are ready yet.</td></tr>';
+    const stock = must(fg).map((r) => `<tr><td>${esc(r.unit)}</td><td>${esc(itemLabel(r.item))}</td><td class="num">${fmt(r.qty)}</td></tr>`).join("")
+      || '<tr><td colspan="3" class="muted">No finished goods in stock.</td></tr>';
+    return pageHeader("15. Ready for sale", "Finished goods waiting to go to the customer.") + `
+      ${panel("Orders ready to send", `<div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>What</th><th>Due</th><th>Time left</th><th></th></tr></thead><tbody>${blocks}</tbody></table></div>`)}
+      ${panel("Finished goods in stock", `<div class="table-wrap"><table><thead><tr><th>Place</th><th>What</th><th class="num">How many</th></tr></thead><tbody>${stock}</tbody></table></div>`)}`;
+  };
+
+  // ---------- Customers ----------
+  VIEWS.customers = async () => {
+    const list = must(await sb.from("customer").select("*").order("name"));
+    const form = `
+      <form id="f-customer" class="form-grid">
+        <div class="field"><label>Customer code</label><input name="customer_code" required /></div>
+        <div class="field"><label>Name</label><input name="name" required /></div>
+        <div class="field"><label>GSTIN</label><input name="gstin" maxlength="15" /></div>
+        <div class="field" style="grid-column:1/-1"><label>Address</label><input name="address" /></div>
+        <div class="form-actions"><button class="btn">Save customer</button></div>
+      </form>`;
+    const rows = list.map((c) => `<tr><td class="mono">${esc(c.customer_code)}</td><td>${esc(c.name)}</td><td>${esc(c.gstin) || "—"}</td><td>${esc(c.address) || "—"}</td></tr>`).join("")
+      || '<tr><td colspan="4" class="muted">No customers yet.</td></tr>';
+    return pageHeader("Customers", "The companies that buy our fans.") + panel("New customer", form) + panel(`${list.length} customers`, `<div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>GSTIN</th><th>Address</th></tr></thead><tbody>${rows}</tbody></table></div>`);
   };
 
   VIEWS.items = async () => {
@@ -258,13 +785,15 @@
             <div class="field"><label>Conversion (buy unit to stock unit)</label><input name="conversion_factor" type="number" step="any" min="0.001" value="1" /></div>
             <div class="field"><label>Safety amount</label><input name="safety_stock" type="number" step="any" min="0" value="0" /></div>
             <div class="field"><label>Smallest order amount</label><input name="moq" type="number" step="any" min="0" value="0" /></div>
+            <div class="field"><label>Lead time (days to get it)</label><input name="lead_time_days" type="number" step="1" min="1" value="7" /></div>
+            <div class="field"><label>Buffer size (leave empty to work it out)</label><input name="buffer_qty" type="number" step="any" min="0" /></div>
           </div>
         </details>
         <div class="form-actions"><button class="btn">Save</button></div>
       </form>`;
     const rows = list.map((i) => `<tr><td class="mono">${esc(i.item_code)}</td><td>${esc(i.short_name)}</td><td>${i.item_type}</td><td>${i.stock_uom}</td><td>${i.purchase_uom || "—"}</td><td class="num">${fmt(i.conversion_factor)}</td><td class="num">${fmt(i.safety_stock)}</td><td class="num">${fmt(i.moq)}</td></tr>`).join("")
       || '<tr><td colspan="8" class="muted">No items yet.</td></tr>';
-    return pageHeader("1. Things we use", "Write down every thing we buy or make, like a fan blade or a motor.") + `
+    return pageHeader("Things we use", "Write down every thing we buy or make, like a fan blade or a motor.") + `
       ${panel("New item", form)}
       ${panel(`${list.length} items`, `<div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Stock UOM</th><th>Purchase UOM</th><th class="num">Conv.</th><th class="num">Safety</th><th class="num">MOQ</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   };
@@ -325,35 +854,9 @@
       </form>`;
     const rows = list.map((v) => `<tr><td class="mono">${esc(v.vendor_code)}</td><td>${esc(v.name)}</td><td>${esc(v.gstin) || "—"}</td><td>${esc(v.payment_terms) || "—"}</td><td>${esc(v.address) || "—"}</td></tr>`).join("")
       || '<tr><td colspan="5" class="muted">No vendors yet.</td></tr>';
-    return pageHeader("2. Our suppliers", "The shops and companies we buy things from.") + `
+    return pageHeader("Suppliers", "The shops and companies we buy things from.") + `
       ${panel("New vendor", form)}
       ${panel(`${list.length} vendors`, `<div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>GSTIN</th><th>Payment terms</th><th>Address</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
-  };
-
-  VIEWS.po = async (id) => {
-    if (id) return poDetail(id);
-    const [vendors, items, pos, uid] = await Promise.all([
-      sb.from("vendor").select("id,name,vendor_code").order("name"),
-      sb.from("item").select("id,item_code,short_name").order("item_code"),
-      sb.from("purchase_order").select("*, vendor:vendor_id(name)").order("created_at", { ascending: false }),
-      currentUserId(),
-    ]);
-    const vs = must(vendors), its = must(items), ps = must(pos);
-    const form = `
-      <form id="f-po">
-        <div class="form-grid">
-          <div class="field"><label>Supplier</label><select name="vendor_id" required>${opts(vs, "id", (v) => `${v.name} (${v.vendor_code})`, "", "Choose a supplier")}</select></div>
-          <div class="field"><label>Place</label><select name="unit">${unitOpts()}</select></div>
-          <div class="field"><label>PO date</label><input name="po_date" type="date" value="${today()}" required /></div>
-        </div>
-        <div style="margin-top:14px">${lineInputs("l", its, LINE_COLS_ITEM)}</div>
-        <div class="form-actions"><button class="btn">Make the order</button></div>
-      </form>`;
-    const rows = ps.map((p) => `<tr><td class="mono">${esc(p.po_no)}</td><td>${dt(p.po_date)}</td><td>${esc(p.vendor && p.vendor.name)}</td><td>${p.unit}</td><td>${statusBadge(p.status)}</td><td>${p.created_by === uid ? "You" : "Someone else"}</td><td><a href="#po/${p.id}">Open</a></td></tr>`).join("")
-      || '<tr><td colspan="7" class="muted">No purchase orders yet.</td></tr>';
-    return pageHeader("3. Order from a supplier", "Make an order, get it checked, then send it to the supplier.") + `
-      ${panel("New purchase order", form)}
-      ${panel(`${ps.length} purchase orders`, `<div class="table-wrap"><table><thead><tr><th>PO no</th><th>Date</th><th>Vendor</th><th>Place</th><th>How it is</th><th>Who made it</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   };
 
   async function poDetail(id) {
@@ -370,8 +873,8 @@
 
     const isCreator = p.created_by === uid;
     let action = "";
-    if (p.status === "Draft") action = `<button class="btn" data-act="po-submit" data-id="${id}" data-done="Sent for checking!">Send for checking</button>`;
-    else if (p.status === "Pending verification") action = `<button class="btn" data-act="po-verify" data-id="${id}" data-done="Checked!">Check it is right</button>`;
+    if (p.status === "Draft") action = `<button class="btn" data-act="po-submit" data-id="${id}" data-done="Released for verification!">Release for verification</button>`;
+    else if (p.status === "Pending verification") action = `<button class="btn" data-act="po-verify" data-id="${id}" data-done="Verified!">Verify</button>`;
     else if (p.status === "Verified") {
       action = isCreator
         ? `<button class="btn" disabled>Send to supplier</button><p class="muted small" style="margin-top:8px">You created this PO, so another approver must release it.</p>`
@@ -386,57 +889,6 @@
       ${pageHeader(p.po_no, `${p.vendor ? p.vendor.name : ""} · Unit ${p.unit} · ${dt(p.po_date)}`, `<a class="btn-ghost" href="#po">All POs</a>`)}
       ${panel("Status", `<div class="row" style="justify-content:space-between">${statusBadge(p.status)}<div class="row">${action}</div></div>`)}
       ${panel("Lines", `<div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">How many</th><th class="num">Price each</th><th class="num">GST %</th><th class="num">Money</th><th class="num">Received</th><th class="num">Outstanding</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
-  }
-
-  VIEWS.grn = async (id) => {
-    if (id) return grnDetail(id);
-    const [vendors, items, pos, grns] = await Promise.all([
-      sb.from("vendor").select("id,name,vendor_code").order("name"),
-      sb.from("item").select("id,item_code,short_name").order("item_code"),
-      sb.from("purchase_order").select("id,po_no,status").in("status", ["Released", "Verified"]).order("po_no"),
-      sb.from("grn").select("*, vendor:vendor_id(name)").order("created_at", { ascending: false }),
-    ]);
-    const vs = must(vendors), its = must(items), ps = must(pos), gs = must(grns);
-    const form = `
-      <form id="f-grn">
-        <div class="form-grid">
-          <div class="field"><label>Supplier</label><select name="vendor_id" required>${opts(vs, "id", (v) => `${v.name} (${v.vendor_code})`, "", "Choose a supplier")}</select></div>
-          <div class="field"><label>Place</label><select name="unit">${unitOpts()}</select></div>
-          <div class="field"><label>From an order (optional)</label><select name="po_id">${opts(ps, "id", (p) => `${p.po_no} (${p.status})`, "", "No PO")}</select></div>
-          <div class="field"><label>Date it came</label><input name="received_on" type="date" value="${today()}" required /></div>
-        </div>
-        <div style="margin-top:14px">${lineInputs("l", its, [
-          { k: "item_id", label: "Thing" },
-          { k: "qty", label: "How many came", type: "number" },
-        ])}</div>
-        <div class="form-actions"><button class="btn">Save the delivery</button></div>
-        <p class="muted small" style="margin-top:8px">Press "Yes, we got it" to finish.</p>
-      </form>`;
-    const rows = gs.map((g) => `<tr><td class="mono">${esc(g.grn_no)}</td><td>${dt(g.received_on)}</td><td>${esc(g.vendor && g.vendor.name)}</td><td>${g.unit}</td><td>${statusBadge(g.status)}</td><td><a href="#grn/${g.id}">Open</a></td></tr>`).join("")
-      || '<tr><td colspan="6" class="muted">No goods receipts yet.</td></tr>';
-    return pageHeader("4. Got a delivery?", "Write down what came in. Then press the button to say we got it.") + `
-      ${panel("New goods receipt", form)}
-      ${panel(`${gs.length} goods receipts`, `<div class="table-wrap"><table><thead><tr><th>GRN no</th><th>Received</th><th>Vendor</th><th>Place</th><th>How it is</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
-  };
-
-  async function grnDetail(id) {
-    const [head, lines] = await Promise.all([
-      sb.from("grn").select("*, vendor:vendor_id(name), po:po_id(po_no)").eq("id", id).single(),
-      sb.from("grn_line").select("*, item:item_id(item_code, short_name, stock_uom), lot:inspection_lot(status, accepted_qty, rejected_qty)").eq("grn_id", id),
-    ]);
-    const g = must(head);
-    const ls = must(lines);
-    const post = g.status === "Draft"
-      ? `<button class="btn" data-act="grn-post" data-id="${id}" data-done="Yes, we got it!" data-confirm="Did these things really come in?" data-title="Post GRN">Yes, we got it</button>`
-      : "";
-    const rows = ls.map((l) => {
-      const lot = l.lot && l.lot.length ? l.lot[0] : null;
-      return `<tr><td>${esc(itemLabel(l.item))}</td><td>${esc(l.batch_no) || "—"}</td><td class="num">${fmt(l.qty)}</td><td class="num">${money(l.rate)}</td><td>${lot ? statusBadge(lot.status) : "—"}</td><td class="num">${lot ? fmt(lot.accepted_qty) : "—"}</td><td class="num">${lot ? fmt(lot.rejected_qty) : "—"}</td></tr>`;
-    }).join("") || '<tr><td colspan="7" class="muted">No lines.</td></tr>';
-    return `
-      ${pageHeader(g.grn_no, `${g.vendor ? g.vendor.name : ""} · Unit ${g.unit} · Received ${dt(g.received_on)} · PO ${g.po ? g.po.po_no : "none"}`, `<a class="btn-ghost" href="#grn">All GRNs</a>`)}
-      ${panel("Status", `<div class="row" style="justify-content:space-between">${statusBadge(g.status)}<div class="row">${post}</div></div>`)}
-      ${panel("Lines", `<div class="table-wrap"><table><thead><tr><th>Item</th><th>Batch</th><th class="num">How many</th><th class="num">Price each</th><th>Check</th><th class="num">Good</th><th class="num">Not good</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   }
 
   VIEWS.iqc = async () => {
@@ -456,7 +908,7 @@
         <td><input name="rem" type="text" /></td>
         <td><button class="btn" data-act="iqc-save" data-id="${r.id}" data-done="Check saved">Save the check</button></td></tr>`;
     }).join("") || '<tr><td colspan="10" class="muted">No inspection lots yet. Post a goods receipt to create them.</td></tr>';
-    return pageHeader("5. Check it is good", "Look at what came in. Say how many are good and how many are not good.") + `
+    return pageHeader("12. Quality check (IQC)", "Pass goes on to production. Fail goes back to the supplier.") + `
       ${panel("Inspection lots", `<div class="table-wrap"><table><thead><tr><th>GRN</th><th>Place</th><th>Item</th><th>Batch</th><th class="num">Received</th><th>How it is</th><th class="num">Good</th><th class="num">Not good</th><th>Note</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`)}`;
   };
 
@@ -498,21 +950,8 @@
     const filter = `<form id="f-stockfilter" class="inline-form"><div class="field"><label>Place</label><select name="unit"><option value="">All units</option>${UNITS.map((u) => `<option value="${u}"${u === unit ? " selected" : ""}>${u}</option>`).join("")}</select></div></form>`;
     const body = rows.map((r) => `<tr><td>${r.unit}</td><td>${esc(itemLabel(r.item))}</td><td>${badge(BUCKET_NAME[r.bucket] || r.bucket, r.bucket === "Blocked" ? "red" : r.bucket === "QI" ? "amber" : r.bucket === "Unrestricted" ? "green" : "gray")}</td><td class="num">${fmt(r.qty)}</td><td>${r.item.stock_uom}</td></tr>`).join("")
       || '<tr><td colspan="5" class="muted">No stock with a quantity above zero.</td></tr>';
-    return pageHeader("What we have", "How many of each thing we have, and where it is.") + `
+    return pageHeader("3. Open stock ledger", "How many of each thing we have, and where it is.", '<a class="btn-ghost" href="#ledger">📒 History</a> <a class="btn-ghost" href="#dashboard">🏠 Home</a>') + `
       ${panel("Stock on hand", `${filter}<div class="table-wrap"><table><thead><tr><th>Place</th><th>Item</th><th>Where it is</th><th class="num">How many</th><th>Unit</th></tr></thead><tbody>${body}</tbody></table></div>`)}`;
-  };
-
-  VIEWS.issue = async () => {
-    const items = must(await sb.from("item").select("id,item_code,short_name").order("item_code"));
-    const form = `
-      <form id="f-issue" class="form-grid">
-        <div class="field" style="grid-column:1/-1"><label>Thing</label><select name="item_id" required>${opts(items, "id", itemLabel, "", "Choose a thing")}</select></div>
-        <div class="field"><label>Place</label><select name="unit">${unitOpts()}</select></div>
-        <div class="field"><label>How many</label><input name="qty" type="number" step="any" min="0.001" required /></div>
-        <div class="field"><label>Job name (optional)</label><input name="ref" /></div>
-        <div class="form-actions"><button class="btn">Send to the workshop</button></div>
-      </form>`;
-    return pageHeader("6. Send to the workshop", "Send the good things we have to the workshop to make fans.") + panel("Send to the workshop", form + `<p class="muted small" style="margin-top:10px">We can only send what is ready to use.</p>`);
   };
 
   VIEWS.ledger = async (_id, params) => {
@@ -530,83 +969,6 @@
   };
 
 
-  // ---------- planning: stock status, kitting check, purchase suggestions, valuation ----------
-  // Reorder point = safety stock + MOQ (an assumption; adjust if the planning rule changes).
-  const reorderPoint = (item) => Number(item.safety_stock || 0) + Number(item.moq || 0);
-  function stockStatus(qty, item) {
-    if (qty <= Number(item.safety_stock || 0)) return ["Very low", "red"];
-    if (qty <= reorderPoint(item)) return ["Low", "amber"];
-    return ["Fine", "green"];
-  }
-  async function unitBalances(unit, itemIds) {
-    let q = sb.from("stock_balance").select("item_id, bucket, qty").eq("unit", unit);
-    if (itemIds) q = q.in("item_id", itemIds);
-    const map = {};
-    for (const r of must(await q)) {
-      map[r.item_id] = map[r.item_id] || {};
-      map[r.item_id][r.bucket] = Number(r.qty);
-    }
-    return map;
-  }
-  const balOf = (map, id, bucket) => (map[id] && map[id][bucket]) || 0;
-  const suggestQty = (need, moq) => (need <= 0 ? 0 : moq > 0 ? Math.ceil(need / moq) * moq : need);
-
-  VIEWS.planning = async (_id, params) => {
-    const unit = params.get("unit") || UNITS[0];
-    const [items, boms, grnLines] = await Promise.all([
-      sb.from("item").select("*").order("item_code"),
-      sb.from("bom_header").select("id, version, fg:fg_item_id(item_code, short_name)").eq("is_active", true).order("fg_item_id"),
-      sb.from("grn_line").select("item_id, rate, grn:grn_id(created_at)"),
-    ]);
-    const itemList = must(items);
-    const bomList = must(boms);
-    const bal = await unitBalances(unit);
-
-    // Stock status: items that have a safety level or stock in this unit.
-    const statusRows = itemList
-      .filter((i) => Number(i.safety_stock || 0) > 0 || balOf(bal, i.id, "Unrestricted") > 0 || balOf(bal, i.id, "QI") > 0)
-      .map((i) => {
-        const u = balOf(bal, i.id, "Unrestricted");
-        const [label, tone] = stockStatus(u, i);
-        return { i, u, q: balOf(bal, i.id, "QI"), label, tone };
-      })
-      .sort((a, b) => ["Very low", "Low", "Fine"].indexOf(a.label) - ["Very low", "Low", "Fine"].indexOf(b.label));
-    const statusBody = statusRows.map((r) => `<tr><td class="mono">${esc(r.i.item_code)}</td><td>${esc(r.i.short_name)}</td><td class="num">${fmt(r.u)}</td><td class="num">${fmt(r.q)}</td><td class="num">${fmt(r.i.safety_stock)}</td><td class="num">${fmt(reorderPoint(r.i))}</td><td>${badge(r.label, r.tone)}</td></tr>`).join("")
-      || '<tr><td colspan="7" class="muted">No items with a safety level or stock in this unit.</td></tr>';
-
-    // Current inventory report with valuation at the last purchase rate.
-    const lastRate = {};
-    const lastAt = {};
-    for (const l of grnLines.data || []) {
-      const at = l.grn ? l.grn.created_at : null;
-      if (at && (!lastAt[l.item_id] || at > lastAt[l.item_id])) { lastAt[l.item_id] = at; lastRate[l.item_id] = Number(l.rate || 0); }
-    }
-    let totalValue = 0;
-    const valRows = itemList.map((i) => {
-      const u = balOf(bal, i.id, "Unrestricted");
-      if (!u) return "";
-      const rate = lastRate[i.id] || 0;
-      const value = u * rate;
-      totalValue += value;
-      return `<tr><td class="mono">${esc(i.item_code)}</td><td>${esc(i.short_name)}</td><td>${i.stock_uom}</td><td class="num">${fmt(u)}</td><td class="num">${money(rate)}</td><td class="num">${money(value)}</td></tr>`;
-    }).join("") || '<tr><td colspan="6" class="muted">No unrestricted stock in this unit.</td></tr>';
-
-    const unitSel = `<form id="f-planfilter" class="inline-form"><div class="field"><label>Place</label><select name="unit">${UNITS.map((u) => `<option value="${u}"${u === unit ? " selected" : ""}>${u}</option>`).join("")}</select></div></form>`;
-    const kitForm = `
-      <form id="f-kit" class="inline-form">
-        <div class="field" style="min-width:320px"><label>Which fan?</label><select name="bom_id" required>${opts(bomList, "id", (b) => `${b.fg ? itemLabel(b.fg) : "BOM"} v${b.version}`, "", "Choose a BOM")}</select></div>
-        <div class="field"><label>How many do we want to make?</label><input name="units" type="number" min="1" step="1" value="100" required /></div>
-        <div class="field"><label>Place</label><select name="unit">${UNITS.map((u) => `<option value="${u}"${u === unit ? " selected" : ""}>${u}</option>`).join("")}</select></div>
-        <div class="form-actions"><button class="btn">Can we make it?</button></div>
-      </form>
-      <div id="kit-result" style="margin-top:14px"></div>`;
-
-    return pageHeader("Can we make it?", "Pick a fan, say how many you want, and we will check if we have enough.") + `
-      ${panel("Stock status", `${unitSel}<div class="table-wrap"><table><thead><tr><th>Code</th><th>Item</th><th class="num">Ready to use</th><th class="num">QI</th><th class="num">Safety</th><th class="num">Reorder point</th><th>How it is</th></tr></thead><tbody>${statusBody}</tbody></table></div><p class="muted small" style="margin-top:10px">Very low: at or below the safety amount. Low: time to order. Fine: enough for now.</p>`)}
-      ${panel("Kitting check", kitForm + `<p class="muted small" style="margin-top:10px">Shows how many kits the unit can build now from unrestricted stock, and what to buy for the shortfall. Suggestions = required - available - QI + safety stock, rounded up to MOQ.</p>`)}
-      ${panel("Current inventory report", `<div class="row" style="justify-content:flex-end;margin-bottom:10px"><button class="btn-ghost" data-act="print">Print</button></div><div class="table-wrap"><table><thead><tr><th>Code</th><th>Item</th><th>Unit</th><th class="num">How many</th><th class="num">Last rate</th><th class="num">Value</th></tr></thead><tbody>${valRows}</tbody><tfoot><tr><th colspan="5">Total value (${esc(unit)})</th><th class="num">${money(totalValue)}</th></tr></tfoot></table></div><p class="muted small" style="margin-top:10px">Valued at the most recent goods receipt rate for each item.</p>`)}`;
-  };
-
   // ---------- form submissions ----------
   const FORMS = {};
 
@@ -615,6 +977,7 @@
     v.conversion_factor = v.conversion_factor || 1;
     v.safety_stock = v.safety_stock || 0;
     v.moq = v.moq || 0;
+    v.lead_time_days = v.lead_time_days || 7;
     if (!v.item_code) {
       const n = (await sb.from("item").select("id", { count: "exact", head: true })).count || 0;
       v.item_code = `10-${String(100 + n).padStart(3, "0")}-01-01-01`;
@@ -642,84 +1005,73 @@
     return "skip-route";
   };
 
-  FORMS["f-po"] = async (f) => {
+  FORMS["f-customer"] = async (f) => {
+    must(await sb.from("customer").insert(collect(f)));
+  };
+
+  FORMS["f-order"] = async (f) => {
     const v = collect(f);
     const lines = readLines(f, "l");
-    if (!v.vendor_id) throw new Error("Choose a supplier.");
-    if (!lines.length) throw new Error("Add at least one thing to the list.");
-    const po_no = must(await sb.rpc("next_doc_no", { p_prefix: "PO" }));
-    const head = must(await sb.from("purchase_order").insert({ po_no, vendor_id: v.vendor_id, unit: v.unit, po_date: v.po_date }).select("id").single());
-    const res = await sb.from("po_line").insert(lines.map((l) => ({ po_id: head.id, item_id: l.item_id, qty: l.qty, rate: l.rate || 0, gst_rate: l.gst_rate || 0 })));
+    if (!v.customer_id) throw new Error("Choose a customer.");
+    if (!lines.length) throw new Error("Add at least one thing the customer wants.");
+    if (lines.some((l) => !(l.qty > 0))) throw new Error("Write how many for every line.");
+    const order_no = must(await sb.rpc("next_doc_no", { p_prefix: "SO" }));
+    const head = must(await sb.from("customer_order").insert({ order_no, customer_id: v.customer_id, customer_po_no: v.customer_po_no, unit: v.unit, due_date: v.due_date }).select("id").single());
+    const res = await sb.from("customer_order_line").insert(lines.map((l) => ({ order_id: head.id, item_id: l.item_id, ordered_qty: l.qty })));
     if (res.error) {
-      await sb.from("purchase_order").delete().eq("id", head.id);
+      await sb.from("customer_order").delete().eq("id", head.id);
       throw res.error;
     }
-    toast(`Order ${po_no} made. Send it when ready.`, "success");
-    location.hash = "#po/" + head.id;
+    toast(`Order ${order_no} saved. Next: accept the quantity.`, "success");
+    location.hash = "#accept";
     return "skip-route";
+  };
+
+  FORMS["f-pr"] = async (f) => {
+    const v = collect(f);
+    if (!v.item_id) throw new Error("Choose a thing.");
+    const pr_no = must(await sb.rpc("next_doc_no", { p_prefix: "PR" }));
+    must(await sb.from("purchase_requisition").insert({ pr_no, item_id: v.item_id, qty: v.qty, unit: v.unit, needed_by: v.needed_by, reason: v.reason }));
   };
 
   FORMS["f-grn"] = async (f) => {
     const v = collect(f);
     const lines = readLines(f, "l");
     if (!v.vendor_id) throw new Error("Choose a supplier.");
-    if (!lines.length) throw new Error("Add at least one thing to the list.");
+    if (!lines.length) throw new Error("Add at least one thing that came in.");
+    if (lines.some((l) => !(l.qty > 0))) throw new Error("Write how many for every line.");
     const grn_no = must(await sb.rpc("next_doc_no", { p_prefix: "GRN" }));
     const head = must(await sb.from("grn").insert({ grn_no, vendor_id: v.vendor_id, unit: v.unit, received_on: v.received_on, po_id: v.po_id || null }).select("id").single());
-    const res = await sb.from("grn_line").insert(lines.map((l) => ({ grn_id: head.id, item_id: l.item_id, qty: l.qty, rate: l.rate || 0, batch_no: l.batch_no })));
+    const res = await sb.from("grn_line").insert(lines.map((l) => ({ grn_id: head.id, item_id: l.item_id, qty: l.qty, batch_no: l.batch_no })));
     if (res.error) {
       await sb.from("grn").delete().eq("id", head.id);
       throw res.error;
     }
-    toast(`Delivery ${grn_no} saved. Press "Yes, we got it" to finish.`, "success");
-    location.hash = "#grn/" + head.id;
+    toast(`Delivery ${grn_no} saved. Next: count it.`, "success");
+    location.hash = "#storecheck";
     return "skip-route";
   };
 
-  FORMS["f-issue"] = async (f) => {
-    const v = collect(f);
-    must(await sb.rpc("issue_material", { p_item_id: v.item_id, p_unit: v.unit, p_qty: v.qty, p_ref: v.ref }));
-    toast("Sent to the workshop!", "success");
-    f.reset();
-    return "skip-route";
-  };
+  FORMS["f-forecastfilter"] = async () => "skip-route";
 
-
-  FORMS["f-kit"] = async (f) => {
-    const v = collect(f);
-    const units = Number(v.units) || 0;
-    if (!v.bom_id) throw new Error("Choose a BOM.");
-    if (units <= 0) throw new Error("How many do we want to make? must be at least 1.");
-    const lines = must(await sb.from("bom_line").select("qty_per, scrap_pct, component:component_item_id(id, item_code, short_name, stock_uom, safety_stock, moq)").eq("bom_id", v.bom_id));
-    if (!lines.length) throw new Error("This BOM has no components.");
-    const bal = await unitBalances(v.unit, lines.map((l) => l.component.id));
-    let maxKits = Infinity;
-    const rows = [];
-    const buys = [];
-    for (const l of lines) {
-      const c = l.component;
-      const per = Number(l.qty_per) * (1 + Number(l.scrap_pct || 0) / 100);
-      const req = units * per;
-      const avail = balOf(bal, c.id, "Unrestricted");
-      const qi = balOf(bal, c.id, "QI");
-      maxKits = Math.min(maxKits, per > 0 ? Math.floor(avail / per) : Infinity);
-      const short = Math.max(0, req - avail);
-      const sugg = suggestQty(req - avail - qi + Number(c.safety_stock || 0), Number(c.moq || 0));
-      rows.push(`<tr><td>${esc(itemLabel(c))}</td><td>${c.stock_uom}</td><td class="num">${fmt(req)}</td><td class="num">${fmt(avail)}</td><td class="num">${fmt(qi)}</td><td class="num">${fmt(short)}</td><td>${short > 0 ? badge("Short", "red") : badge("OK", "green")}</td></tr>`);
-      if (sugg > 0) buys.push(`<tr><td>${esc(itemLabel(c))}</td><td class="num">${fmt(sugg)}</td><td>${c.stock_uom}</td></tr>`);
+  // Material received: choosing a PO fills in the supplier and what is still to come.
+  document.addEventListener("change", async (e) => {
+    const f = e.target.form;
+    if (!f || f.id !== "f-grn" || e.target.name !== "po_id" || !e.target.value) return;
+    try {
+      const po = must(await sb.from("purchase_order").select("vendor_id, unit, lines:po_line(item_id, qty, received_qty)").eq("id", e.target.value).single());
+      f.vendor_id.value = po.vendor_id;
+      f.unit.value = po.unit;
+      const open = po.lines.filter((l) => Number(l.received_qty || 0) < Number(l.qty));
+      for (let i = 1; i <= LINES; i++) {
+        const l = open[i - 1];
+        f[`l${i}_item_id`].value = l ? l.item_id : "";
+        f[`l${i}_qty`].value = l ? Number(l.qty) - Number(l.received_qty || 0) : "";
+      }
+    } catch (err) {
+      toast(friendly(err), "error");
     }
-    const ok = maxKits >= units;
-    const verdict = ok
-      ? `<p><strong>Yes, you can produce ${units} kit(s) in ${esc(v.unit)}.</strong></p>`
-      : `<p><strong>No, you can only produce ${maxKits} of ${units} kit(s) in ${esc(v.unit)}.</strong></p>`;
-    const buyTable = buys.length
-      ? `<h3 style="margin-top:16px">Suggested purchase</h3><div class="table-wrap"><table><thead><tr><th>Component</th><th class="num">Suggested qty</th><th>Unit</th></tr></thead><tbody>${buys.join("")}</tbody></table></div>`
-      : "";
-    document.getElementById("kit-result").innerHTML = `${verdict}<div class="table-wrap"><table><thead><tr><th>Component</th><th>Unit</th><th class="num">Required</th><th class="num">Available</th><th class="num">In QI</th><th class="num">Short</th><th>How it is</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>${buyTable}`;
-    return "skip-route";
-  };
-
-  FORMS["f-planfilter"] = async () => "skip-route";
+  });
 
   // Filters and the BOM calculator are handled by change/input listeners below.
   FORMS["f-stockfilter"] = FORMS["f-ledgerfilter"] = FORMS["f-calc"] = async () => "skip-route";
@@ -729,7 +1081,7 @@
     if (!f) return;
     if (f.id === "f-stockfilter") location.hash = "#stock?unit=" + encodeURIComponent(f.unit.value);
     if (f.id === "f-ledgerfilter") location.hash = "#ledger?item=" + encodeURIComponent(f.item.value);
-    if (f.id === "f-planfilter") location.hash = "#planning?unit=" + encodeURIComponent(f.unit.value);
+    if (f.id === "f-forecastfilter") location.hash = "#forecast?h=" + encodeURIComponent(f.h.value) + "&unit=" + encodeURIComponent(f.unit.value);
   });
 
   document.addEventListener("input", (e) => {
@@ -743,10 +1095,52 @@
 
   // ---------- row actions ----------
   const ACTIONS = {
+    // 2. Accept quantity
+    "accept-order": async (id, el) => {
+      const lines = [...el.closest("section").querySelectorAll("input[data-line]")].map((i) => ({ line_id: i.dataset.line, qty: Number(i.value) }));
+      must(await sb.rpc("accept_order", { p_order_id: id, p_lines: lines }));
+    },
+    // 5. Forecast -> 6. Requisition
+    "make-pr": async (id, el) => {
+      const pr_no = must(await sb.rpc("next_doc_no", { p_prefix: "PR" }));
+      must(await sb.from("purchase_requisition").insert({
+        pr_no, item_id: id, qty: Number(el.dataset.qty), unit: el.dataset.unit,
+        needed_by: addDays(Number(el.dataset.days) || 7), reason: el.dataset.reason,
+      }));
+    },
+    // TOC dynamic buffer management: +1/3 when it keeps going red, -1/3 when it stays green.
+    "buf-up": async (id, el) => must(await sb.from("item").update({ buffer_qty: Math.ceil(Number(el.dataset.target) * 4 / 3) }).eq("id", id)),
+    "buf-down": async (id, el) => must(await sb.from("item").update({ buffer_qty: Math.max(0, Math.floor(Number(el.dataset.target) * 2 / 3)) }).eq("id", id)),
+    "pr-cancel": async (id) => must(await sb.from("purchase_requisition").update({ status: "Cancelled" }).eq("id", id).eq("status", "Open")),
+    // 7. Compare -> PO
+    "pr-to-po": async (id, el) => {
+      const box = el.closest("section");
+      const vendor = box.querySelector('[name="vendor"]').value;
+      const rate = box.querySelector('[name="rate"]').value;
+      if (!vendor) throw new Error("Choose a supplier.");
+      must(await sb.rpc("make_po_from_pr", { p_pr_id: id, p_vendor_id: vendor, p_rate: rate === "" ? 0 : Number(rate) }));
+    },
+    // 8. Release for verification -> verify -> send to supplier
     "po-submit": async (id) => must(await sb.from("purchase_order").update({ status: "Pending verification" }).eq("id", id)),
     "po-verify": async (id) => must(await sb.from("purchase_order").update({ status: "Verified", verified_by: await currentUserId() }).eq("id", id)),
     "po-release": async (id) => must(await sb.from("purchase_order").update({ status: "Released", released_by: await currentUserId() }).eq("id", id)),
-    "grn-post": async (id) => must(await sb.rpc("post_grn", { p_grn_id: id })),
+    // 9. Follow-up with date
+    "fu-save": async (id, el) => {
+      const tr = el.closest("tr");
+      const remarks = tr.querySelector('[name="remarks"]').value.trim();
+      const promised = tr.querySelector('[name="promised"]').value || null;
+      if (!remarks) throw new Error("Write what the supplier said.");
+      must(await sb.from("po_followup").insert({ po_id: id, remarks, promised_date: promised }));
+      if (promised) must(await sb.from("purchase_order").update({ expected_date: promised }).eq("id", id));
+    },
+    // 11. Store check
+    "grn-check": async (id, el) => {
+      const box = el.closest("section");
+      const returned = [...box.querySelectorAll('input[type="radio"][value="no"]:checked')].map((r) => r.dataset.line);
+      const remarks = box.querySelector('[name="remarks"]').value.trim() || null;
+      must(await sb.rpc("post_grn_checked", { p_grn_id: id, p_returned: returned, p_remarks: remarks }));
+    },
+    // 12. IQC
     "iqc-save": async (id, el) => {
       const tr = el.closest("tr");
       const acc = Number(tr.querySelector('[name="acc"]').value);
@@ -760,6 +1154,23 @@
       const rem = tr.querySelector('[name="rem"]').value.trim() || null;
       must(await sb.rpc("create_purchase_return", { p_lot_id: id, p_qty: qty, p_remarks: rem }));
     },
+    // 13. Full kit to production
+    "kit-issue": async (id, el) => {
+      const qty = Number(el.closest("tr").querySelector('[name="qty"]').value);
+      must(await sb.rpc("issue_kit", { p_order_line_id: id, p_unit: el.dataset.unit, p_qty: qty }));
+    },
+    // 14. Production record
+    "prod-save": async (id, el) => {
+      const tr = el.closest("tr");
+      must(await sb.rpc("record_production", {
+        p_order_line_id: id, p_unit: el.dataset.unit,
+        p_fg_qty: Number(tr.querySelector('[name="fg"]').value) || 0,
+        p_wip_qty: Number(tr.querySelector('[name="wip"]').value) || 0,
+        p_remarks: tr.querySelector('[name="rem"]').value.trim() || null,
+      }));
+    },
+    // 15. Send to customer
+    "dispatch": async (id) => must(await sb.rpc("dispatch_order", { p_order_id: id })),
   };
 
   document.addEventListener("click", async (e) => {

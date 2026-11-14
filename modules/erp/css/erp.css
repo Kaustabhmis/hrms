@@ -34,3 +34,17 @@ td select { min-width: 240px; }
 details.more { margin-top: 12px; }
 details.more summary { cursor: pointer; font-weight: 600; color: var(--primary); }
 details.more .form-grid { margin-top: 12px; }
+
+/* ---------- workflow and TOC buffers ---------- */
+.flow-stage { margin: 22px 0 8px; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.zone { font-weight: 700; }
+.zone-black { background: #1f2430; color: #fff; }
+.zone-black::before { background: #fff; }
+.yn { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; font-weight: 600; color: var(--text); }
+.yn input { width: auto; min-height: 0; }
+td .btn { font-size: 14px; padding: 8px 12px; min-height: 38px; white-space: nowrap; }
+td .btn-ghost { white-space: nowrap; }
+
+/* The step list is long: let the sidebar menu scroll so every step and Sign out stay reachable. */
+.sidebar nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-right: -6px; padding-right: 6px; }
+.sidebar .sidebar-footer { flex-shrink: 0; }
