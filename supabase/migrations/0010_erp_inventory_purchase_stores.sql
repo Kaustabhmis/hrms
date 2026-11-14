@@ -144,7 +144,6 @@ begin
   raise exception 'stock_ledger is append-only; post a REV movement instead';
 end $$;
 
-drop trigger if exists stock_ledger_no_update on public.stock_ledger;
 create trigger stock_ledger_no_update before update or delete on public.stock_ledger
   for each row execute function public.prevent_ledger_change();
 
@@ -186,14 +185,12 @@ begin
                            'grn','grn_line','inspection_lot']
   loop
     execute format('alter table public.%I enable row level security', t);
-    execute format('drop policy if exists "signed_in_all" on public.%I', t);
     execute format('create policy "signed_in_all" on public.%I for all to authenticated using (true) with check (true)', t);
   end loop;
 
   foreach t in array array['stock_balance','stock_ledger']
   loop
     execute format('alter table public.%I enable row level security', t);
-    execute format('drop policy if exists "signed_in_read" on public.%I', t);
     execute format('create policy "signed_in_read" on public.%I for select to authenticated using (true)', t);
   end loop;
 end $$;
