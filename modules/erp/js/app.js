@@ -111,13 +111,25 @@
   function badge(text, tone) {
     return `<span class="badge badge-${tone || "gray"}">${esc(text)}</span>`;
   }
+  const PLAIN_STATUS = {
+    "Draft": "Not sent yet", "Pending verification": "Waiting to be checked", "Verified": "Checked",
+    "Released": "Sent to supplier", "Cancelled": "Cancelled", "Closed": "All done",
+    "Posted": "Got it", "Reversed": "Undone", "Pending": "Waiting", "Passed": "Good",
+    "Partially passed": "Some good", "Failed": "Not good",
+  };
+  const BUCKET_NAME = {
+    "Unrestricted": "Ready to use", "QI": "Waiting for check", "Blocked": "Not good, send back",
+    "Reserved": "Kept for a job", "WIP": "In the workshop", "FG": "Finished",
+  };
   function statusBadge(s) {
     const tone = /Released|Verified|Passed|Posted|Closed/.test(s) ? "green" : /Failed|Blocked|Cancelled|Reversed/.test(s) ? "red" : /Pending|Partially/.test(s) ? "amber" : "gray";
-    return badge(s, tone);
+    return badge(PLAIN_STATUS[s] || s, tone);
   }
 
+
   function pageHeader(title, subtitle, actions) {
-    return `<div class="page-header"><div><h1 class="page-title">${esc(title)}</h1>${subtitle ? `<p class="page-subtitle">${esc(subtitle)}</p>` : ""}</div>${actions ? `<div class="actions">${actions}</div>` : ""}</div>`;
+    const act = actions || '<a class="btn-ghost" href="#dashboard">🏠 Home</a>';
+    return `<div class="page-header"><div><h1 class="page-title">${esc(title)}</h1>${subtitle ? `<p class="page-subtitle">${esc(subtitle)}</p>` : ""}</div><div class="actions">${act}</div></div>`;
   }
   function panel(title, body, actions) {
     return `<section class="panel"><div class="panel-header"><h3>${esc(title)}</h3>${actions ? `<div class="actions">${actions}</div>` : ""}</div><div class="panel-body">${body}</div></section>`;
@@ -176,10 +188,9 @@
     return h + "</tbody></table></div>";
   }
   const LINE_COLS_ITEM = [
-    { k: "item_id", label: "Item" },
-    { k: "qty", label: "Qty", type: "number" },
-    { k: "rate", label: "Rate", type: "number" },
-    { k: "gst_rate", label: "GST %", type: "number" },
+    { k: "item_id", label: "Thing" },
+    { k: "qty", label: "How many", type: "number" },
+    { k: "rate", label: "Price each", type: "number" },
   ];
 
   async function currentUserId() {
@@ -205,30 +216,26 @@
   const VIEWS = {};
 
   VIEWS.dashboard = async () => {
-    const count = (table, filter) => {
-      let q = sb.from(table).select("*", { count: "exact", head: true });
-      if (filter) q = filter(q);
-      return q.then((r) => { if (r.error) throw r.error; return r.count || 0; });
-    };
-    const [items, vendors, openPos, draftGrns, pendingIqc, returns] = await Promise.all([
-      count("item"),
-      count("vendor"),
-      count("purchase_order", (q) => q.in("status", ["Draft", "Pending verification", "Verified"])),
-      count("grn", (q) => q.eq("status", "Draft")),
-      count("inspection_lot", (q) => q.eq("status", "Pending")),
-      count("purchase_return"),
-    ]);
-    const card = (label, value, sub) => `<div class="card"><div class="card-body"><div class="card-label">${label}</div><div class="card-value">${fmt(value)}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div></div>`;
-    return pageHeader("Dashboard", "Inventory, purchase, stores and quality at a glance.") + `
-      <div class="cards-row">
-        ${card("Items", items, "Item master")}
-        ${card("Vendors", vendors, "Approved suppliers")}
-        ${card("Open POs", openPos, "Draft to verified")}
-        ${card("Draft GRNs", draftGrns, "Not yet posted to QI")}
-        ${card("Awaiting inspection", pendingIqc, "Lots in QI")}
-        ${card("Purchase returns", returns, "Returned to vendors")}
+    const steps = [
+      ["1", "📦", "Write down the things we use", "items", "Add each thing we buy or make."],
+      ["2", "🤝", "Write down our suppliers", "vendors", "Add the shops we buy from."],
+      ["3", "🧾", "Order from a supplier", "po", "Make an order and send it."],
+      ["4", "📥", "Got a delivery?", "grn", "Write down what came in."],
+      ["5", "🔬", "Check it is good", "iqc", "Say how many are good."],
+      ["6", "🏭", "Send to the workshop", "issue", "Send good things to make fans."],
+    ];
+    const extras = [
+      ["📊", "What we have", "stock"],
+      ["📈", "Can we make it?", "planning"],
+      ["↩️", "Send bad things back", "returns"],
+      ["📒", "History", "ledger"],
+    ];
+    return `
+      <div class="page-header"><div><h1 class="page-title">Hello! 👋</h1><p class="page-subtitle">Follow the steps in order, from 1 to 6.</p></div></div>
+      <div class="kid-steps">
+        ${steps.map((st) => `<a class="kid-step" href="#${st[3]}"><span class="kid-num">${st[0]}</span><span class="kid-emoji">${st[1]}</span><span class="kid-words"><strong>${esc(st[2])}</strong><span class="muted small">${esc(st[4])}</span></span></a>`).join("")}
       </div>
-      ${panel("Start here", `<p class="muted">1. Add items and vendors. 2. Raise a purchase order and release it. 3. Record the goods receipt and post it to QI. 4. Inspect the lot, then return any rejected stock.</p>`)}`;
+      ${panel("Other things you can do", `<div class="kid-extras">${extras.map((x) => `<a class="kid-extra" href="#${x[2]}"><span>${x[0]}</span> ${esc(x[1])}</a>`).join("")}</div>`)}`;
   };
 
   VIEWS.items = async () => {
@@ -240,20 +247,24 @@
     const units = must(uoms);
     const form = `
       <form id="f-item" class="form-grid">
-        <div class="field"><label>Item code</label><input name="item_code" required placeholder="10-100-01-01-01" pattern="[0-9]{2}-[0-9]{3}-[0-9]{2}-[0-9]{2}-[0-9]{2}" /></div>
-        <div class="field"><label>Short name (max 31)</label><input name="short_name" required maxlength="31" /></div>
-        <div class="field"><label>Description</label><input name="description" /></div>
-        <div class="field"><label>Stock UOM</label><select name="stock_uom" required>${opts(units, "code", (u) => `${u.code} - ${u.name}`, "")}</select></div>
-        <div class="field"><label>Purchase UOM</label><select name="purchase_uom"><option value="">Same as stock</option>${opts(units, "code", (u) => `${u.code} - ${u.name}`, "")}</select></div>
-        <div class="field"><label>Conversion (purchase to stock)</label><input name="conversion_factor" type="number" step="any" min="0.001" value="1" /></div>
-        <div class="field"><label>Type</label><select name="item_type">${TYPES.map((t) => `<option>${t}</option>`).join("")}</select></div>
-        <div class="field"><label>Safety stock</label><input name="safety_stock" type="number" step="any" min="0" value="0" /></div>
-        <div class="field"><label>MOQ</label><input name="moq" type="number" step="any" min="0" value="0" /></div>
-        <div class="form-actions"><button class="btn">Save item</button></div>
+        <div class="field"><label>Code (leave empty and we make one)</label><input name="item_code" placeholder="Leave empty" pattern="[0-9]{2}-[0-9]{3}-[0-9]{2}-[0-9]{2}-[0-9]{2}" /></div>
+        <div class="field"><label>Name</label><input name="short_name" required maxlength="31" /></div>
+        <div class="field"><label>Unit (like pieces or kg)</label><select name="stock_uom" required>${opts(units, "code", (u) => `${u.code} - ${u.name}`, "")}</select></div>
+        <div class="field"><label>Kind</label><select name="item_type">${TYPES.map((t) => `<option>${t}</option>`).join("")}</select></div>
+        <details class="more" style="grid-column:1/-1"><summary>More settings (for experts, you can skip these)</summary>
+          <div class="form-grid" style="margin-top:12px">
+            <div class="field"><label>Description</label><input name="description" /></div>
+            <div class="field"><label>Buy in another unit (optional)</label><select name="purchase_uom"><option value="">Same as stock</option>${opts(units, "code", (u) => `${u.code} - ${u.name}`, "")}</select></div>
+            <div class="field"><label>Conversion (buy unit to stock unit)</label><input name="conversion_factor" type="number" step="any" min="0.001" value="1" /></div>
+            <div class="field"><label>Safety amount</label><input name="safety_stock" type="number" step="any" min="0" value="0" /></div>
+            <div class="field"><label>Smallest order amount</label><input name="moq" type="number" step="any" min="0" value="0" /></div>
+          </div>
+        </details>
+        <div class="form-actions"><button class="btn">Save</button></div>
       </form>`;
     const rows = list.map((i) => `<tr><td class="mono">${esc(i.item_code)}</td><td>${esc(i.short_name)}</td><td>${i.item_type}</td><td>${i.stock_uom}</td><td>${i.purchase_uom || "—"}</td><td class="num">${fmt(i.conversion_factor)}</td><td class="num">${fmt(i.safety_stock)}</td><td class="num">${fmt(i.moq)}</td></tr>`).join("")
       || '<tr><td colspan="8" class="muted">No items yet.</td></tr>';
-    return pageHeader("Items", "Item master. Codes follow CC-SSS-MM-NN-VV, and names are at most 31 characters.") + `
+    return pageHeader("1. Things we use", "Write down every thing we buy or make, like a fan blade or a motor.") + `
       ${panel("New item", form)}
       ${panel(`${list.length} items`, `<div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Stock UOM</th><th>Purchase UOM</th><th class="num">Conv.</th><th class="num">Safety</th><th class="num">MOQ</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   };
@@ -269,7 +280,7 @@
     const form = `
       <form id="f-bom">
         <div class="form-grid">
-          <div class="field" style="grid-column:1/-1"><label>Finished or sub-assembly item</label><select name="fg_item_id" required>${opts(itemList, "id", itemLabel, "", "Choose an item")}</select></div>
+          <div class="field" style="grid-column:1/-1"><label>Finished or sub-assembly item</label><select name="fg_item_id" required>${opts(itemList, "id", itemLabel, "", "Choose a thing")}</select></div>
           <div class="field"><label>Version</label><input name="version" type="number" min="1" step="1" value="1" required /></div>
         </div>
         <div style="margin-top:14px">${lineInputs("c", itemList, [
@@ -281,9 +292,9 @@
       </form>`;
     const rows = headList.map((h) => `<tr><td>${h.fg ? esc(itemLabel(h.fg)) : "—"}</td><td class="num">${h.version}</td><td>${h.is_active ? badge("Active", "green") : badge("Inactive", "gray")}</td><td><a href="#bom/${h.id}">Open</a></td></tr>`).join("")
       || '<tr><td colspan="4" class="muted">No BOMs yet.</td></tr>';
-    return pageHeader("Bill of materials", "Components per unit of each finished or sub-assembly item.") + `
+    return pageHeader("Recipes", "Which parts go into one finished fan, and how many of each.") + `
       ${panel("New BOM", form)}
-      ${panel(`${headList.length} BOMs`, `<div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">Version</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+      ${panel(`${headList.length} BOMs`, `<div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">Version</th><th>How it is</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   };
 
   async function bomDetail(id) {
@@ -295,26 +306,26 @@
     const ls = must(lines);
     const rows = ls.map((l) => `<tr><td>${esc(itemLabel(l.component))}</td><td>${l.component.stock_uom}</td><td class="num">${fmt(l.qty_per)}</td><td class="num">${fmt(l.scrap_pct)}</td><td class="num calc" data-per="${l.qty_per}" data-scrap="${l.scrap_pct}">—</td></tr>`).join("")
       || '<tr><td colspan="5" class="muted">No components.</td></tr>';
-    const calc = `<form id="f-calc" class="inline-form" style="margin-bottom:14px"><div class="field"><label>Units to build</label><input name="units" type="number" min="0" step="any" value="100" /></div></form>`;
+    const calc = `<form id="f-calc" class="inline-form" style="margin-bottom:14px"><div class="field"><label>How many?</label><input name="units" type="number" min="0" step="any" value="100" /></div></form>`;
     return `
       ${pageHeader(`BOM: ${itemLabel(h.fg)} v${h.version}`, "Required quantity per component, including scrap.", `<a class="btn-ghost" href="#bom">All BOMs</a>`)}
-      ${panel("Components", calc + `<div class="table-wrap"><table><thead><tr><th>Component</th><th>UOM</th><th class="num">Qty per unit</th><th class="num">Scrap %</th><th class="num">Required</th></tr></thead><tbody>${rows}</tbody></table></div><p class="muted small" style="margin-top:10px">Required = units x qty per unit x (1 + scrap %), before stock is netted off.</p>`)}`;
+      ${panel("Components", calc + `<div class="table-wrap"><table><thead><tr><th>Component</th><th>Unit</th><th class="num">Qty per unit</th><th class="num">Scrap %</th><th class="num">Required</th></tr></thead><tbody>${rows}</tbody></table></div><p class="muted small" style="margin-top:10px">Required = units x qty per unit x (1 + scrap %), before stock is netted off.</p>`)}`;
   }
 
   VIEWS.vendors = async () => {
     const list = must(await sb.from("vendor").select("*").order("vendor_code"));
     const form = `
       <form id="f-vendor" class="form-grid">
-        <div class="field"><label>Vendor code</label><input name="vendor_code" required /></div>
+        <div class="field"><label>Supplier code</label><input name="vendor_code" required /></div>
         <div class="field"><label>Name</label><input name="name" required /></div>
         <div class="field"><label>GSTIN</label><input name="gstin" maxlength="15" /></div>
         <div class="field"><label>Payment terms</label><input name="payment_terms" placeholder="30 days" /></div>
         <div class="field" style="grid-column:1/-1"><label>Address</label><input name="address" /></div>
-        <div class="form-actions"><button class="btn">Save vendor</button></div>
+        <div class="form-actions"><button class="btn">Save supplier</button></div>
       </form>`;
     const rows = list.map((v) => `<tr><td class="mono">${esc(v.vendor_code)}</td><td>${esc(v.name)}</td><td>${esc(v.gstin) || "—"}</td><td>${esc(v.payment_terms) || "—"}</td><td>${esc(v.address) || "—"}</td></tr>`).join("")
       || '<tr><td colspan="5" class="muted">No vendors yet.</td></tr>';
-    return pageHeader("Vendors", "Suppliers that items are bought from.") + `
+    return pageHeader("2. Our suppliers", "The shops and companies we buy things from.") + `
       ${panel("New vendor", form)}
       ${panel(`${list.length} vendors`, `<div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>GSTIN</th><th>Payment terms</th><th>Address</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   };
@@ -331,18 +342,18 @@
     const form = `
       <form id="f-po">
         <div class="form-grid">
-          <div class="field"><label>Vendor</label><select name="vendor_id" required>${opts(vs, "id", (v) => `${v.name} (${v.vendor_code})`, "", "Choose a vendor")}</select></div>
-          <div class="field"><label>Unit</label><select name="unit">${unitOpts()}</select></div>
+          <div class="field"><label>Supplier</label><select name="vendor_id" required>${opts(vs, "id", (v) => `${v.name} (${v.vendor_code})`, "", "Choose a supplier")}</select></div>
+          <div class="field"><label>Place</label><select name="unit">${unitOpts()}</select></div>
           <div class="field"><label>PO date</label><input name="po_date" type="date" value="${today()}" required /></div>
         </div>
         <div style="margin-top:14px">${lineInputs("l", its, LINE_COLS_ITEM)}</div>
-        <div class="form-actions"><button class="btn">Create PO as draft</button></div>
+        <div class="form-actions"><button class="btn">Make the order</button></div>
       </form>`;
     const rows = ps.map((p) => `<tr><td class="mono">${esc(p.po_no)}</td><td>${dt(p.po_date)}</td><td>${esc(p.vendor && p.vendor.name)}</td><td>${p.unit}</td><td>${statusBadge(p.status)}</td><td>${p.created_by === uid ? "You" : "Someone else"}</td><td><a href="#po/${p.id}">Open</a></td></tr>`).join("")
       || '<tr><td colspan="7" class="muted">No purchase orders yet.</td></tr>';
-    return pageHeader("Purchase orders", "Raise a PO as draft, then send it for verification and release it.") + `
+    return pageHeader("3. Order from a supplier", "Make an order, get it checked, then send it to the supplier.") + `
       ${panel("New purchase order", form)}
-      ${panel(`${ps.length} purchase orders`, `<div class="table-wrap"><table><thead><tr><th>PO no</th><th>Date</th><th>Vendor</th><th>Unit</th><th>Status</th><th>Created by</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+      ${panel(`${ps.length} purchase orders`, `<div class="table-wrap"><table><thead><tr><th>PO no</th><th>Date</th><th>Vendor</th><th>Place</th><th>How it is</th><th>Who made it</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   };
 
   async function poDetail(id) {
@@ -359,12 +370,12 @@
 
     const isCreator = p.created_by === uid;
     let action = "";
-    if (p.status === "Draft") action = `<button class="btn" data-act="po-submit" data-id="${id}" data-done="Sent for verification">Submit for verification</button>`;
-    else if (p.status === "Pending verification") action = `<button class="btn" data-act="po-verify" data-id="${id}" data-done="PO verified">Verify PO</button>`;
+    if (p.status === "Draft") action = `<button class="btn" data-act="po-submit" data-id="${id}" data-done="Sent for checking!">Send for checking</button>`;
+    else if (p.status === "Pending verification") action = `<button class="btn" data-act="po-verify" data-id="${id}" data-done="Checked!">Check it is right</button>`;
     else if (p.status === "Verified") {
       action = isCreator
-        ? `<button class="btn" disabled>Release PO</button><p class="muted small" style="margin-top:8px">You created this PO, so another approver must release it.</p>`
-        : `<button class="btn" data-act="po-release" data-id="${id}" data-done="PO released" data-confirm="Release this PO to the vendor?" data-title="Release PO">Release PO</button>`;
+        ? `<button class="btn" disabled>Send to supplier</button><p class="muted small" style="margin-top:8px">You created this PO, so another approver must release it.</p>`
+        : `<button class="btn" data-act="po-release" data-id="${id}" data-done="Sent to the supplier!" data-confirm="Send this order to the supplier now?" data-title="Send to supplier">Send to supplier</button>`;
     }
     const rows = ls.map((l) => {
       const rec = received[l.item_id] || 0;
@@ -374,7 +385,7 @@
     return `
       ${pageHeader(p.po_no, `${p.vendor ? p.vendor.name : ""} · Unit ${p.unit} · ${dt(p.po_date)}`, `<a class="btn-ghost" href="#po">All POs</a>`)}
       ${panel("Status", `<div class="row" style="justify-content:space-between">${statusBadge(p.status)}<div class="row">${action}</div></div>`)}
-      ${panel("Lines", `<div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">GST %</th><th class="num">Amount</th><th class="num">Received</th><th class="num">Outstanding</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+      ${panel("Lines", `<div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">How many</th><th class="num">Price each</th><th class="num">GST %</th><th class="num">Money</th><th class="num">Received</th><th class="num">Outstanding</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   }
 
   VIEWS.grn = async (id) => {
@@ -389,25 +400,23 @@
     const form = `
       <form id="f-grn">
         <div class="form-grid">
-          <div class="field"><label>Vendor</label><select name="vendor_id" required>${opts(vs, "id", (v) => `${v.name} (${v.vendor_code})`, "", "Choose a vendor")}</select></div>
-          <div class="field"><label>Unit</label><select name="unit">${unitOpts()}</select></div>
-          <div class="field"><label>Against PO (optional)</label><select name="po_id">${opts(ps, "id", (p) => `${p.po_no} (${p.status})`, "", "No PO")}</select></div>
-          <div class="field"><label>Received on</label><input name="received_on" type="date" value="${today()}" required /></div>
+          <div class="field"><label>Supplier</label><select name="vendor_id" required>${opts(vs, "id", (v) => `${v.name} (${v.vendor_code})`, "", "Choose a supplier")}</select></div>
+          <div class="field"><label>Place</label><select name="unit">${unitOpts()}</select></div>
+          <div class="field"><label>From an order (optional)</label><select name="po_id">${opts(ps, "id", (p) => `${p.po_no} (${p.status})`, "", "No PO")}</select></div>
+          <div class="field"><label>Date it came</label><input name="received_on" type="date" value="${today()}" required /></div>
         </div>
         <div style="margin-top:14px">${lineInputs("l", its, [
-          { k: "item_id", label: "Item" },
-          { k: "qty", label: "Qty received", type: "number" },
-          { k: "rate", label: "Rate", type: "number" },
-          { k: "batch_no", label: "Batch no" },
+          { k: "item_id", label: "Thing" },
+          { k: "qty", label: "How many came", type: "number" },
         ])}</div>
-        <div class="form-actions"><button class="btn">Save draft GRN</button></div>
-        <p class="muted small" style="margin-top:8px">Stock moves into QI only when the GRN is posted.</p>
+        <div class="form-actions"><button class="btn">Save the delivery</button></div>
+        <p class="muted small" style="margin-top:8px">Press "Yes, we got it" to finish.</p>
       </form>`;
     const rows = gs.map((g) => `<tr><td class="mono">${esc(g.grn_no)}</td><td>${dt(g.received_on)}</td><td>${esc(g.vendor && g.vendor.name)}</td><td>${g.unit}</td><td>${statusBadge(g.status)}</td><td><a href="#grn/${g.id}">Open</a></td></tr>`).join("")
       || '<tr><td colspan="6" class="muted">No goods receipts yet.</td></tr>';
-    return pageHeader("Goods receipts", "Record material received against a vendor, then post it to QI.") + `
+    return pageHeader("4. Got a delivery?", "Write down what came in. Then press the button to say we got it.") + `
       ${panel("New goods receipt", form)}
-      ${panel(`${gs.length} goods receipts`, `<div class="table-wrap"><table><thead><tr><th>GRN no</th><th>Received</th><th>Vendor</th><th>Unit</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+      ${panel(`${gs.length} goods receipts`, `<div class="table-wrap"><table><thead><tr><th>GRN no</th><th>Received</th><th>Vendor</th><th>Place</th><th>How it is</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   };
 
   async function grnDetail(id) {
@@ -418,7 +427,7 @@
     const g = must(head);
     const ls = must(lines);
     const post = g.status === "Draft"
-      ? `<button class="btn" data-act="grn-post" data-id="${id}" data-done="GRN posted to QI" data-confirm="Post this GRN? Stock moves into QI for inspection." data-title="Post GRN">Post GRN to QI</button>`
+      ? `<button class="btn" data-act="grn-post" data-id="${id}" data-done="Yes, we got it!" data-confirm="Did these things really come in?" data-title="Post GRN">Yes, we got it</button>`
       : "";
     const rows = ls.map((l) => {
       const lot = l.lot && l.lot.length ? l.lot[0] : null;
@@ -427,7 +436,7 @@
     return `
       ${pageHeader(g.grn_no, `${g.vendor ? g.vendor.name : ""} · Unit ${g.unit} · Received ${dt(g.received_on)} · PO ${g.po ? g.po.po_no : "none"}`, `<a class="btn-ghost" href="#grn">All GRNs</a>`)}
       ${panel("Status", `<div class="row" style="justify-content:space-between">${statusBadge(g.status)}<div class="row">${post}</div></div>`)}
-      ${panel("Lines", `<div class="table-wrap"><table><thead><tr><th>Item</th><th>Batch</th><th class="num">Qty</th><th class="num">Rate</th><th>Inspection</th><th class="num">Accepted</th><th class="num">Rejected</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+      ${panel("Lines", `<div class="table-wrap"><table><thead><tr><th>Item</th><th>Batch</th><th class="num">How many</th><th class="num">Price each</th><th>Check</th><th class="num">Good</th><th class="num">Not good</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   }
 
   VIEWS.iqc = async () => {
@@ -445,10 +454,10 @@
         <td><input name="acc" type="number" step="any" min="0" max="${qty}" value="${qty}" /></td>
         <td><input name="rej" type="number" step="any" min="0" max="${qty}" value="0" /></td>
         <td><input name="rem" type="text" /></td>
-        <td><button class="btn" data-act="iqc-save" data-id="${r.id}" data-done="Inspection recorded">Record</button></td></tr>`;
+        <td><button class="btn" data-act="iqc-save" data-id="${r.id}" data-done="Check saved">Save the check</button></td></tr>`;
     }).join("") || '<tr><td colspan="10" class="muted">No inspection lots yet. Post a goods receipt to create them.</td></tr>';
-    return pageHeader("Inspections", "Incoming quality checks. Accepted stock moves to Unrestricted; rejected stock moves to Blocked.") + `
-      ${panel("Inspection lots", `<div class="table-wrap"><table><thead><tr><th>GRN</th><th>Unit</th><th>Item</th><th>Batch</th><th class="num">Received</th><th>Status</th><th class="num">Accepted</th><th class="num">Rejected</th><th>Remarks</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`)}`;
+    return pageHeader("5. Check it is good", "Look at what came in. Say how many are good and how many are not good.") + `
+      ${panel("Inspection lots", `<div class="table-wrap"><table><thead><tr><th>GRN</th><th>Place</th><th>Item</th><th>Batch</th><th class="num">Received</th><th>How it is</th><th class="num">Good</th><th class="num">Not good</th><th>Note</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`)}`;
   };
 
   VIEWS.returns = async () => {
@@ -471,13 +480,13 @@
       return `<tr><td class="mono">${esc(grn && grn.grn_no)}</td><td>${esc(grn && grn.vendor && grn.vendor.name)}</td><td>${esc(l.line && itemLabel(l.line.item))}</td><td class="num">${fmt(l.rejected_qty)}</td><td class="num">${fmt(done)}</td><td class="num">${fmt(remaining)}</td>
         <td><input name="qty" type="number" step="any" min="0" max="${remaining}" value="${remaining}" /></td>
         <td><input name="rem" type="text" /></td>
-        <td><button class="btn" data-act="ret-save" data-id="${l.id}" data-done="Purchase return created" data-confirm="Create a purchase return to this vendor?" data-title="Create return">Create return</button></td></tr>`;
+        <td><button class="btn" data-act="ret-save" data-id="${l.id}" data-done="Sent back!" data-confirm="Send these bad things back to the supplier?" data-title="Send it back">Send it back</button></td></tr>`;
     }).join("") || '<tr><td colspan="9" class="muted">No rejected stock is waiting for a return.</td></tr>';
     const past = retList.map((r) => `<tr><td>${dt(r.created_at)}</td><td>${esc(r.vendor && r.vendor.name)}</td><td class="num">${fmt(r.qty)}</td><td>${esc(r.remarks) || "—"}</td></tr>`).join("")
       || '<tr><td colspan="4" class="muted">No returns yet.</td></tr>';
-    return pageHeader("Purchase returns", "Send rejected stock back to the vendor it came from.") + `
-      ${panel("Waiting for return", `<div class="table-wrap"><table><thead><tr><th>GRN</th><th>Vendor</th><th>Item</th><th class="num">Rejected</th><th class="num">Returned</th><th class="num">Remaining</th><th>Qty to return</th><th>Remarks</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`)}
-      ${panel("Returns made", `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Vendor</th><th class="num">Qty</th><th>Remarks</th></tr></thead><tbody>${past}</tbody></table></div>`)}`;
+    return pageHeader("Send bad things back", "Send the not good things back to the supplier they came from.") + `
+      ${panel("Waiting for return", `<div class="table-wrap"><table><thead><tr><th>GRN</th><th>Vendor</th><th>Item</th><th class="num">Not good</th><th class="num">Returned</th><th class="num">Remaining</th><th>How many to send back</th><th>Note</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`)}
+      ${panel("Returns made", `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Vendor</th><th class="num">How many</th><th>Note</th></tr></thead><tbody>${past}</tbody></table></div>`)}`;
   };
 
   VIEWS.stock = async (_id, params) => {
@@ -486,24 +495,24 @@
     if (unit) q = q.eq("unit", unit);
     const rows = must(await q);
     rows.sort((a, b) => a.unit.localeCompare(b.unit) || a.item.item_code.localeCompare(b.item.item_code) || BUCKETS.indexOf(a.bucket) - BUCKETS.indexOf(b.bucket));
-    const filter = `<form id="f-stockfilter" class="inline-form"><div class="field"><label>Unit</label><select name="unit"><option value="">All units</option>${UNITS.map((u) => `<option value="${u}"${u === unit ? " selected" : ""}>${u}</option>`).join("")}</select></div></form>`;
-    const body = rows.map((r) => `<tr><td>${r.unit}</td><td>${esc(itemLabel(r.item))}</td><td>${badge(r.bucket, r.bucket === "Blocked" ? "red" : r.bucket === "QI" ? "amber" : r.bucket === "Unrestricted" ? "green" : "gray")}</td><td class="num">${fmt(r.qty)}</td><td>${r.item.stock_uom}</td></tr>`).join("")
+    const filter = `<form id="f-stockfilter" class="inline-form"><div class="field"><label>Place</label><select name="unit"><option value="">All units</option>${UNITS.map((u) => `<option value="${u}"${u === unit ? " selected" : ""}>${u}</option>`).join("")}</select></div></form>`;
+    const body = rows.map((r) => `<tr><td>${r.unit}</td><td>${esc(itemLabel(r.item))}</td><td>${badge(BUCKET_NAME[r.bucket] || r.bucket, r.bucket === "Blocked" ? "red" : r.bucket === "QI" ? "amber" : r.bucket === "Unrestricted" ? "green" : "gray")}</td><td class="num">${fmt(r.qty)}</td><td>${r.item.stock_uom}</td></tr>`).join("")
       || '<tr><td colspan="5" class="muted">No stock with a quantity above zero.</td></tr>';
-    return pageHeader("Stock", "Quantities by unit and bucket. QI is awaiting inspection; Blocked is rejected stock waiting for a return.") + `
-      ${panel("Stock on hand", `${filter}<div class="table-wrap"><table><thead><tr><th>Unit</th><th>Item</th><th>Bucket</th><th class="num">Qty</th><th>UOM</th></tr></thead><tbody>${body}</tbody></table></div>`)}`;
+    return pageHeader("What we have", "How many of each thing we have, and where it is.") + `
+      ${panel("Stock on hand", `${filter}<div class="table-wrap"><table><thead><tr><th>Place</th><th>Item</th><th>Where it is</th><th class="num">How many</th><th>Unit</th></tr></thead><tbody>${body}</tbody></table></div>`)}`;
   };
 
   VIEWS.issue = async () => {
     const items = must(await sb.from("item").select("id,item_code,short_name").order("item_code"));
     const form = `
       <form id="f-issue" class="form-grid">
-        <div class="field" style="grid-column:1/-1"><label>Item</label><select name="item_id" required>${opts(items, "id", itemLabel, "", "Choose an item")}</select></div>
-        <div class="field"><label>Unit</label><select name="unit">${unitOpts()}</select></div>
-        <div class="field"><label>Qty to issue</label><input name="qty" type="number" step="any" min="0.001" required /></div>
-        <div class="field"><label>Reference (job / order)</label><input name="ref" /></div>
-        <div class="form-actions"><button class="btn">Issue to WIP</button></div>
+        <div class="field" style="grid-column:1/-1"><label>Thing</label><select name="item_id" required>${opts(items, "id", itemLabel, "", "Choose a thing")}</select></div>
+        <div class="field"><label>Place</label><select name="unit">${unitOpts()}</select></div>
+        <div class="field"><label>How many</label><input name="qty" type="number" step="any" min="0.001" required /></div>
+        <div class="field"><label>Job name (optional)</label><input name="ref" /></div>
+        <div class="form-actions"><button class="btn">Send to the workshop</button></div>
       </form>`;
-    return pageHeader("Issue to production", "Move unrestricted stock into WIP for a job.") + panel("Issue material", form + `<p class="muted small" style="margin-top:10px">Fails if the unit does not have enough unrestricted stock.</p>`);
+    return pageHeader("6. Send to the workshop", "Send the good things we have to the workshop to make fans.") + panel("Send to the workshop", form + `<p class="muted small" style="margin-top:10px">We can only send what is ready to use.</p>`);
   };
 
   VIEWS.ledger = async (_id, params) => {
@@ -513,11 +522,89 @@
     const [rows, items] = await Promise.all([q, sb.from("item").select("id,item_code,short_name").order("item_code")]);
     const list = must(rows);
     const its = must(items);
-    const filter = `<form id="f-ledgerfilter" class="inline-form"><div class="field" style="min-width:320px"><label>Item</label><select name="item"><option value="">Latest 300 movements (all items)</option>${opts(its, "id", itemLabel, item)}</select></div></form>`;
-    const body = list.map((r) => `<tr><td>${new Date(r.posted_at).toLocaleString("en-IN")}</td><td>${esc(itemLabel(r.item))}</td><td>${r.unit}</td><td>${r.bucket}</td><td class="mono">${r.movement_code}</td><td class="num">${fmt(r.qty)}</td><td class="mono">${esc(r.source_doc) || "—"}</td><td>${esc(r.remarks) || "—"}</td></tr>`).join("")
+    const filter = `<form id="f-ledgerfilter" class="inline-form"><div class="field" style="min-width:320px"><label>Thing</label><select name="item"><option value="">Latest 300 movements (all items)</option>${opts(its, "id", itemLabel, item)}</select></div></form>`;
+    const body = list.map((r) => `<tr><td>${new Date(r.posted_at).toLocaleString("en-IN")}</td><td>${esc(itemLabel(r.item))}</td><td>${r.unit}</td><td>${BUCKET_NAME[r.bucket] || r.bucket}</td><td class="mono">${r.movement_code}</td><td class="num">${fmt(r.qty)}</td><td class="mono">${esc(r.source_doc) || "—"}</td><td>${esc(r.remarks) || "—"}</td></tr>`).join("")
       || '<tr><td colspan="8" class="muted">No movements yet.</td></tr>';
-    return pageHeader("Stock ledger", "Every stock movement. The ledger is append-only; corrections are made with new movements.") + `
-      ${panel("Movements", `${filter}<div class="table-wrap"><table><thead><tr><th>When</th><th>Item</th><th>Unit</th><th>Bucket</th><th>Code</th><th class="num">Qty</th><th>Source</th><th>Remarks</th></tr></thead><tbody>${body}</tbody></table></div>`)}`;
+    return pageHeader("History", "Every time something came in, went out, or was checked.") + `
+      ${panel("Movements", `${filter}<div class="table-wrap"><table><thead><tr><th>When</th><th>Item</th><th>Place</th><th>Where it is</th><th>Code</th><th class="num">How many</th><th>Why</th><th>Note</th></tr></thead><tbody>${body}</tbody></table></div>`)}`;
+  };
+
+
+  // ---------- planning: stock status, kitting check, purchase suggestions, valuation ----------
+  // Reorder point = safety stock + MOQ (an assumption; adjust if the planning rule changes).
+  const reorderPoint = (item) => Number(item.safety_stock || 0) + Number(item.moq || 0);
+  function stockStatus(qty, item) {
+    if (qty <= Number(item.safety_stock || 0)) return ["Very low", "red"];
+    if (qty <= reorderPoint(item)) return ["Low", "amber"];
+    return ["Fine", "green"];
+  }
+  async function unitBalances(unit, itemIds) {
+    let q = sb.from("stock_balance").select("item_id, bucket, qty").eq("unit", unit);
+    if (itemIds) q = q.in("item_id", itemIds);
+    const map = {};
+    for (const r of must(await q)) {
+      map[r.item_id] = map[r.item_id] || {};
+      map[r.item_id][r.bucket] = Number(r.qty);
+    }
+    return map;
+  }
+  const balOf = (map, id, bucket) => (map[id] && map[id][bucket]) || 0;
+  const suggestQty = (need, moq) => (need <= 0 ? 0 : moq > 0 ? Math.ceil(need / moq) * moq : need);
+
+  VIEWS.planning = async (_id, params) => {
+    const unit = params.get("unit") || UNITS[0];
+    const [items, boms, grnLines] = await Promise.all([
+      sb.from("item").select("*").order("item_code"),
+      sb.from("bom_header").select("id, version, fg:fg_item_id(item_code, short_name)").eq("is_active", true).order("fg_item_id"),
+      sb.from("grn_line").select("item_id, rate, grn:grn_id(created_at)"),
+    ]);
+    const itemList = must(items);
+    const bomList = must(boms);
+    const bal = await unitBalances(unit);
+
+    // Stock status: items that have a safety level or stock in this unit.
+    const statusRows = itemList
+      .filter((i) => Number(i.safety_stock || 0) > 0 || balOf(bal, i.id, "Unrestricted") > 0 || balOf(bal, i.id, "QI") > 0)
+      .map((i) => {
+        const u = balOf(bal, i.id, "Unrestricted");
+        const [label, tone] = stockStatus(u, i);
+        return { i, u, q: balOf(bal, i.id, "QI"), label, tone };
+      })
+      .sort((a, b) => ["Very low", "Low", "Fine"].indexOf(a.label) - ["Very low", "Low", "Fine"].indexOf(b.label));
+    const statusBody = statusRows.map((r) => `<tr><td class="mono">${esc(r.i.item_code)}</td><td>${esc(r.i.short_name)}</td><td class="num">${fmt(r.u)}</td><td class="num">${fmt(r.q)}</td><td class="num">${fmt(r.i.safety_stock)}</td><td class="num">${fmt(reorderPoint(r.i))}</td><td>${badge(r.label, r.tone)}</td></tr>`).join("")
+      || '<tr><td colspan="7" class="muted">No items with a safety level or stock in this unit.</td></tr>';
+
+    // Current inventory report with valuation at the last purchase rate.
+    const lastRate = {};
+    const lastAt = {};
+    for (const l of grnLines.data || []) {
+      const at = l.grn ? l.grn.created_at : null;
+      if (at && (!lastAt[l.item_id] || at > lastAt[l.item_id])) { lastAt[l.item_id] = at; lastRate[l.item_id] = Number(l.rate || 0); }
+    }
+    let totalValue = 0;
+    const valRows = itemList.map((i) => {
+      const u = balOf(bal, i.id, "Unrestricted");
+      if (!u) return "";
+      const rate = lastRate[i.id] || 0;
+      const value = u * rate;
+      totalValue += value;
+      return `<tr><td class="mono">${esc(i.item_code)}</td><td>${esc(i.short_name)}</td><td>${i.stock_uom}</td><td class="num">${fmt(u)}</td><td class="num">${money(rate)}</td><td class="num">${money(value)}</td></tr>`;
+    }).join("") || '<tr><td colspan="6" class="muted">No unrestricted stock in this unit.</td></tr>';
+
+    const unitSel = `<form id="f-planfilter" class="inline-form"><div class="field"><label>Place</label><select name="unit">${UNITS.map((u) => `<option value="${u}"${u === unit ? " selected" : ""}>${u}</option>`).join("")}</select></div></form>`;
+    const kitForm = `
+      <form id="f-kit" class="inline-form">
+        <div class="field" style="min-width:320px"><label>Which fan?</label><select name="bom_id" required>${opts(bomList, "id", (b) => `${b.fg ? itemLabel(b.fg) : "BOM"} v${b.version}`, "", "Choose a BOM")}</select></div>
+        <div class="field"><label>How many do we want to make?</label><input name="units" type="number" min="1" step="1" value="100" required /></div>
+        <div class="field"><label>Place</label><select name="unit">${UNITS.map((u) => `<option value="${u}"${u === unit ? " selected" : ""}>${u}</option>`).join("")}</select></div>
+        <div class="form-actions"><button class="btn">Can we make it?</button></div>
+      </form>
+      <div id="kit-result" style="margin-top:14px"></div>`;
+
+    return pageHeader("Can we make it?", "Pick a fan, say how many you want, and we will check if we have enough.") + `
+      ${panel("Stock status", `${unitSel}<div class="table-wrap"><table><thead><tr><th>Code</th><th>Item</th><th class="num">Ready to use</th><th class="num">QI</th><th class="num">Safety</th><th class="num">Reorder point</th><th>How it is</th></tr></thead><tbody>${statusBody}</tbody></table></div><p class="muted small" style="margin-top:10px">Very low: at or below the safety amount. Low: time to order. Fine: enough for now.</p>`)}
+      ${panel("Kitting check", kitForm + `<p class="muted small" style="margin-top:10px">Shows how many kits the unit can build now from unrestricted stock, and what to buy for the shortfall. Suggestions = required - available - QI + safety stock, rounded up to MOQ.</p>`)}
+      ${panel("Current inventory report", `<div class="row" style="justify-content:flex-end;margin-bottom:10px"><button class="btn-ghost" data-act="print">Print</button></div><div class="table-wrap"><table><thead><tr><th>Code</th><th>Item</th><th>Unit</th><th class="num">How many</th><th class="num">Last rate</th><th class="num">Value</th></tr></thead><tbody>${valRows}</tbody><tfoot><tr><th colspan="5">Total value (${esc(unit)})</th><th class="num">${money(totalValue)}</th></tr></tfoot></table></div><p class="muted small" style="margin-top:10px">Valued at the most recent goods receipt rate for each item.</p>`)}`;
   };
 
   // ---------- form submissions ----------
@@ -528,6 +615,10 @@
     v.conversion_factor = v.conversion_factor || 1;
     v.safety_stock = v.safety_stock || 0;
     v.moq = v.moq || 0;
+    if (!v.item_code) {
+      const n = (await sb.from("item").select("id", { count: "exact", head: true })).count || 0;
+      v.item_code = `10-${String(100 + n).padStart(3, "0")}-01-01-01`;
+    }
     must(await sb.from("item").insert(v));
   };
 
@@ -538,15 +629,15 @@
   FORMS["f-bom"] = async (f) => {
     const v = collect(f);
     const lines = readLines(f, "c");
-    if (!v.fg_item_id) throw new Error("Choose the finished or sub-assembly item.");
-    if (!lines.length) throw new Error("Add at least one component.");
+    if (!v.fg_item_id) throw new Error("Choose the fan this recipe is for.");
+    if (!lines.length) throw new Error("Add at least one part.");
     const head = must(await sb.from("bom_header").insert({ fg_item_id: v.fg_item_id, version: v.version || 1 }).select("id").single());
     const res = await sb.from("bom_line").insert(lines.map((l) => ({ bom_id: head.id, component_item_id: l.item_id, qty_per: l.qty, scrap_pct: l.scrap || 0 })));
     if (res.error) {
       await sb.from("bom_header").delete().eq("id", head.id);
       throw res.error;
     }
-    toast("BOM saved", "success");
+    toast("Recipe saved!", "success");
     location.hash = "#bom/" + head.id;
     return "skip-route";
   };
@@ -554,16 +645,16 @@
   FORMS["f-po"] = async (f) => {
     const v = collect(f);
     const lines = readLines(f, "l");
-    if (!v.vendor_id) throw new Error("Choose a vendor.");
-    if (!lines.length) throw new Error("Add at least one line.");
+    if (!v.vendor_id) throw new Error("Choose a supplier.");
+    if (!lines.length) throw new Error("Add at least one thing to the list.");
     const po_no = must(await sb.rpc("next_doc_no", { p_prefix: "PO" }));
     const head = must(await sb.from("purchase_order").insert({ po_no, vendor_id: v.vendor_id, unit: v.unit, po_date: v.po_date }).select("id").single());
-    const res = await sb.from("po_line").insert(lines.map((l) => ({ po_id: head.id, item_id: l.item_id, qty: l.qty, rate: l.rate, gst_rate: l.gst_rate || 0 })));
+    const res = await sb.from("po_line").insert(lines.map((l) => ({ po_id: head.id, item_id: l.item_id, qty: l.qty, rate: l.rate || 0, gst_rate: l.gst_rate || 0 })));
     if (res.error) {
       await sb.from("purchase_order").delete().eq("id", head.id);
       throw res.error;
     }
-    toast(`${po_no} created as draft`, "success");
+    toast(`Order ${po_no} made. Send it when ready.`, "success");
     location.hash = "#po/" + head.id;
     return "skip-route";
   };
@@ -571,8 +662,8 @@
   FORMS["f-grn"] = async (f) => {
     const v = collect(f);
     const lines = readLines(f, "l");
-    if (!v.vendor_id) throw new Error("Choose a vendor.");
-    if (!lines.length) throw new Error("Add at least one line.");
+    if (!v.vendor_id) throw new Error("Choose a supplier.");
+    if (!lines.length) throw new Error("Add at least one thing to the list.");
     const grn_no = must(await sb.rpc("next_doc_no", { p_prefix: "GRN" }));
     const head = must(await sb.from("grn").insert({ grn_no, vendor_id: v.vendor_id, unit: v.unit, received_on: v.received_on, po_id: v.po_id || null }).select("id").single());
     const res = await sb.from("grn_line").insert(lines.map((l) => ({ grn_id: head.id, item_id: l.item_id, qty: l.qty, rate: l.rate || 0, batch_no: l.batch_no })));
@@ -580,7 +671,7 @@
       await sb.from("grn").delete().eq("id", head.id);
       throw res.error;
     }
-    toast(`${grn_no} saved as draft`, "success");
+    toast(`Delivery ${grn_no} saved. Press "Yes, we got it" to finish.`, "success");
     location.hash = "#grn/" + head.id;
     return "skip-route";
   };
@@ -588,10 +679,47 @@
   FORMS["f-issue"] = async (f) => {
     const v = collect(f);
     must(await sb.rpc("issue_material", { p_item_id: v.item_id, p_unit: v.unit, p_qty: v.qty, p_ref: v.ref }));
-    toast("Material issued to WIP", "success");
+    toast("Sent to the workshop!", "success");
     f.reset();
     return "skip-route";
   };
+
+
+  FORMS["f-kit"] = async (f) => {
+    const v = collect(f);
+    const units = Number(v.units) || 0;
+    if (!v.bom_id) throw new Error("Choose a BOM.");
+    if (units <= 0) throw new Error("How many do we want to make? must be at least 1.");
+    const lines = must(await sb.from("bom_line").select("qty_per, scrap_pct, component:component_item_id(id, item_code, short_name, stock_uom, safety_stock, moq)").eq("bom_id", v.bom_id));
+    if (!lines.length) throw new Error("This BOM has no components.");
+    const bal = await unitBalances(v.unit, lines.map((l) => l.component.id));
+    let maxKits = Infinity;
+    const rows = [];
+    const buys = [];
+    for (const l of lines) {
+      const c = l.component;
+      const per = Number(l.qty_per) * (1 + Number(l.scrap_pct || 0) / 100);
+      const req = units * per;
+      const avail = balOf(bal, c.id, "Unrestricted");
+      const qi = balOf(bal, c.id, "QI");
+      maxKits = Math.min(maxKits, per > 0 ? Math.floor(avail / per) : Infinity);
+      const short = Math.max(0, req - avail);
+      const sugg = suggestQty(req - avail - qi + Number(c.safety_stock || 0), Number(c.moq || 0));
+      rows.push(`<tr><td>${esc(itemLabel(c))}</td><td>${c.stock_uom}</td><td class="num">${fmt(req)}</td><td class="num">${fmt(avail)}</td><td class="num">${fmt(qi)}</td><td class="num">${fmt(short)}</td><td>${short > 0 ? badge("Short", "red") : badge("OK", "green")}</td></tr>`);
+      if (sugg > 0) buys.push(`<tr><td>${esc(itemLabel(c))}</td><td class="num">${fmt(sugg)}</td><td>${c.stock_uom}</td></tr>`);
+    }
+    const ok = maxKits >= units;
+    const verdict = ok
+      ? `<p><strong>Yes, you can produce ${units} kit(s) in ${esc(v.unit)}.</strong></p>`
+      : `<p><strong>No, you can only produce ${maxKits} of ${units} kit(s) in ${esc(v.unit)}.</strong></p>`;
+    const buyTable = buys.length
+      ? `<h3 style="margin-top:16px">Suggested purchase</h3><div class="table-wrap"><table><thead><tr><th>Component</th><th class="num">Suggested qty</th><th>Unit</th></tr></thead><tbody>${buys.join("")}</tbody></table></div>`
+      : "";
+    document.getElementById("kit-result").innerHTML = `${verdict}<div class="table-wrap"><table><thead><tr><th>Component</th><th>Unit</th><th class="num">Required</th><th class="num">Available</th><th class="num">In QI</th><th class="num">Short</th><th>How it is</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>${buyTable}`;
+    return "skip-route";
+  };
+
+  FORMS["f-planfilter"] = async () => "skip-route";
 
   // Filters and the BOM calculator are handled by change/input listeners below.
   FORMS["f-stockfilter"] = FORMS["f-ledgerfilter"] = FORMS["f-calc"] = async () => "skip-route";
@@ -601,6 +729,7 @@
     if (!f) return;
     if (f.id === "f-stockfilter") location.hash = "#stock?unit=" + encodeURIComponent(f.unit.value);
     if (f.id === "f-ledgerfilter") location.hash = "#ledger?item=" + encodeURIComponent(f.item.value);
+    if (f.id === "f-planfilter") location.hash = "#planning?unit=" + encodeURIComponent(f.unit.value);
   });
 
   document.addEventListener("input", (e) => {
@@ -638,6 +767,7 @@
     if (!el || el.disabled) return;
     const act = el.dataset.act;
     if (act === "signup" || act === "signout") return;
+    if (act === "print") { window.print(); return; }
     e.preventDefault();
     if (el.dataset.confirm) {
       const ok = await confirmDialog(el.dataset.confirm, { title: el.dataset.title || "Are you sure?", confirmText: el.textContent.trim(), danger: false });
@@ -646,7 +776,7 @@
     el.disabled = true;
     try {
       await ACTIONS[act](el.dataset.id, el);
-      toast(el.dataset.done || "Saved", "success");
+      toast(el.dataset.done || "Saved!", "success");
       await route();
     } catch (err) {
       toast(friendly(err), "error");
@@ -688,7 +818,7 @@
     try {
       const result = await h(f);
       if (result !== "skip-route") {
-        toast("Saved", "success");
+        toast("Saved!", "success");
         f.reset();
         await route();
       }

@@ -15,20 +15,20 @@
     <div class="auth-card">
       <img src="assets/DEPL_logo.png" alt="Dynamic Engineers logo" class="auth-logo" />
       <h1>MAX <span style="color:var(--primary)">ERP</span></h1>
-      <p class="sub">Sign in to Dynamic Engineers' operating system.</p>
+      <p class="sub">Hi! Type your email and your secret word to start.</p>
       <form id="f-login">
         <div class="field">
-          <label for="li-email">Email</label>
+          <label for="li-email">Your email</label>
           <input id="li-email" name="email" type="email" required autocomplete="username" />
         </div>
         <div class="field">
-          <label for="li-pass">Password</label>
+          <label for="li-pass">Your secret word</label>
           <input id="li-pass" name="password" type="password" required minlength="6" autocomplete="current-password" />
         </div>
-        <button class="btn" type="submit">Sign in</button>
+        <button class="btn" type="submit">Let me in</button>
       </form>
       <p class="muted small" style="text-align:center;margin-top:16px">
-        New here? <button type="button" class="link-btn" data-act="signup">Create an account</button>
+        New here? <button type="button" class="link-btn" data-act="signup">Make a new account</button>
       </p>
       <p id="login-error" class="err-text" hidden></p>
     </div>
@@ -39,27 +39,30 @@
     <aside class="sidebar">
       <div class="brand">MAX <span>ERP</span></div>
       <nav>
-        <a href="#dashboard" class="nav-link" data-route="dashboard"><span class="nav-icon">🏠</span>Dashboard</a>
-        <a href="#items" class="nav-link" data-route="items"><span class="nav-icon">📦</span>Items</a>
-        <a href="#bom" class="nav-link" data-route="bom"><span class="nav-icon">🧩</span>Bill of materials</a>
-        <a href="#vendors" class="nav-link" data-route="vendors"><span class="nav-icon">🤝</span>Vendors</a>
-        <a href="#po" class="nav-link" data-route="po"><span class="nav-icon">🧾</span>Purchase orders</a>
-        <a href="#grn" class="nav-link" data-route="grn"><span class="nav-icon">📥</span>Goods receipts</a>
-        <a href="#iqc" class="nav-link" data-route="iqc"><span class="nav-icon">🔬</span>Inspections</a>
-        <a href="#returns" class="nav-link" data-route="returns"><span class="nav-icon">↩️</span>Purchase returns</a>
-        <a href="#stock" class="nav-link" data-route="stock"><span class="nav-icon">📊</span>Stock</a>
-        <a href="#issue" class="nav-link" data-route="issue"><span class="nav-icon">🏭</span>Issue to production</a>
-        <a href="#ledger" class="nav-link" data-route="ledger"><span class="nav-icon">📒</span>Stock ledger</a>
+        <a href="#dashboard" class="nav-link" data-route="dashboard"><span class="nav-icon">🏠</span>Home</a>
+        <p class="nav-group">Step by step</p>
+        <a href="#items" class="nav-link" data-route="items"><span class="nav-icon">📦</span>1. Things we use</a>
+        <a href="#vendors" class="nav-link" data-route="vendors"><span class="nav-icon">🤝</span>2. Our suppliers</a>
+        <a href="#po" class="nav-link" data-route="po"><span class="nav-icon">🧾</span>3. Order from a supplier</a>
+        <a href="#grn" class="nav-link" data-route="grn"><span class="nav-icon">📥</span>4. Got a delivery?</a>
+        <a href="#iqc" class="nav-link" data-route="iqc"><span class="nav-icon">🔬</span>5. Check it is good</a>
+        <a href="#issue" class="nav-link" data-route="issue"><span class="nav-icon">🏭</span>6. Send to the workshop</a>
+        <p class="nav-group">Extra</p>
+        <a href="#stock" class="nav-link" data-route="stock"><span class="nav-icon">📊</span>What we have</a>
+        <a href="#planning" class="nav-link" data-route="planning"><span class="nav-icon">📈</span>Can we make it?</a>
+        <a href="#bom" class="nav-link" data-route="bom"><span class="nav-icon">🧩</span>Recipes</a>
+        <a href="#returns" class="nav-link" data-route="returns"><span class="nav-icon">↩️</span>Send bad things back</a>
+        <a href="#ledger" class="nav-link" data-route="ledger"><span class="nav-icon">📒</span>History</a>
       </nav>
       <div class="sidebar-footer">
         <div class="user-chip">
           <div class="avatar" id="avatar">?</div>
           <div style="min-width:0">
             <div class="user-name" id="who"></div>
-            <div class="user-role">Signed in</div>
+            <div class="user-role">You are signed in</div>
           </div>
         </div>
-        <button class="btn-ghost" data-act="signout">Sign out</button>
+        <button class="btn-ghost" data-act="signout">Go out</button>
       </div>
     </aside>
     <main class="main" id="main"></main>
