@@ -415,7 +415,12 @@
         <a class="kid-extra" href="#items">📦 Things we use</a>
         <a class="kid-extra" href="#bom">🧩 Recipes</a>
         <a class="kid-extra" href="#ledger">📒 History</a>
-      </div>`)}`;
+      </div>`)}
+      ${panel("Sample data (for practice)", `<p class="muted small" style="margin-bottom:10px">Sample records use item codes starting with 99-9 and customer or supplier codes starting with DEMO-. Removing them also removes their orders, POs, deliveries, checks and stock. Your real data is not touched.</p>
+        <div class="row">
+          <button class="btn secondary" data-act="demo-load" data-confirm="Add sample customers, suppliers, fans, parts, stock and orders for practice?" data-title="Add sample data" data-done="Sample data added!">Add sample data</button>
+          <button class="btn danger" data-act="demo-delete" data-confirm="Remove ALL sample data (codes 99-9… and DEMO-…) and everything linked to it? This cannot be undone." data-title="Remove sample data" data-danger="1" data-done="Sample data removed.">Remove sample data</button>
+        </div>`)}`;
   };
 
   // ---------- 1. Order from customer ----------
@@ -1171,6 +1176,9 @@
     },
     // 15. Send to customer
     "dispatch": async (id) => must(await sb.rpc("dispatch_order", { p_order_id: id })),
+    // Sample data for practice
+    "demo-load": async () => must(await sb.rpc("load_demo_data")),
+    "demo-delete": async () => must(await sb.rpc("delete_demo_data")),
   };
 
   document.addEventListener("click", async (e) => {
@@ -1181,7 +1189,7 @@
     if (act === "print") { window.print(); return; }
     e.preventDefault();
     if (el.dataset.confirm) {
-      const ok = await confirmDialog(el.dataset.confirm, { title: el.dataset.title || "Are you sure?", confirmText: el.textContent.trim(), danger: false });
+      const ok = await confirmDialog(el.dataset.confirm, { title: el.dataset.title || "Are you sure?", confirmText: el.textContent.trim(), danger: el.dataset.danger === "1" });
       if (!ok) return;
     }
     el.disabled = true;
