@@ -1,0 +1,20 @@
+/* MAX ERP module helpers. Built on css/styles.css tokens; nothing here overrides the base look. */
+[hidden] { display: none !important; }
+.muted { color: var(--text-muted); }
+.small { font-size: 12px; }
+.err-text { color: var(--red); font-size: 13px; margin-top: 14px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.table-wrap { overflow-x: auto; }
+.table-wrap table td, .table-wrap table th { white-space: nowrap; }
+.page-header .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.panel + .panel { margin-top: 18px; }
+.panel-header .actions { display: flex; gap: 8px; }
+.form-grid + .form-actions { margin-top: 14px; }
+.inline-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.inline-form .field { min-width: 180px; }
+.mono { font-variant-numeric: tabular-nums; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.num input { width: 110px; text-align: right; }
+td input, td select { min-width: 110px; }
+td select { min-width: 240px; }
+.form-actions .btn { min-width: 140px; }

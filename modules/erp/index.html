@@ -1,57 +1,73 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="robots" content="noindex, nofollow">
-  <title>MAX ERP - Inventory, Purchase and Stores</title>
-  <link rel="stylesheet" href="styles.css">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>MAX ERP</title>
+<link rel="stylesheet" href="css/styles.css" />
+<link rel="stylesheet" href="css/erp.css" />
 </head>
 <body>
-  <div id="login" class="login" hidden>
-    <form id="f-login" class="login-card">
-      <h1>MAX ERP</h1>
-      <p class="muted">Inventory, purchase and stores. Sign in with your work email.</p>
-      <label>Email <input name="email" type="email" required autocomplete="username"></label>
-      <label>Password <input name="password" type="password" required minlength="6" autocomplete="current-password"></label>
-      <div class="row">
-        <button type="submit" class="btn">Sign in</button>
-        <button type="button" class="btn secondary" data-act="signup">Create account</button>
-      </div>
-      <p class="muted small">New accounts may need email confirmation before the first sign-in.</p>
-    </form>
-  </div>
 
-  <div id="app" class="app" hidden>
-    <header class="top">
-      <a class="brand" href="../../index.html">MAX <span>ERP</span></a>
-      <span id="who" class="muted small"></span>
-      <button class="btn secondary small" data-act="signout">Sign out</button>
-    </header>
-    <div class="layout">
-      <nav class="side">
-        <p class="nav-group">Masters</p>
-        <a href="#items">Items</a>
-        <a href="#bom">Bill of materials</a>
-        <a href="#vendors">Vendors</a>
-        <p class="nav-group">Purchase</p>
-        <a href="#po">Purchase orders</a>
-        <p class="nav-group">Stores</p>
-        <a href="#grn">Goods receipts</a>
-        <a href="#stock">Stock</a>
-        <a href="#issue">Issue to production</a>
-        <a href="#ledger">Stock ledger</a>
-        <p class="nav-group">Quality</p>
-        <a href="#iqc">Inspections</a>
-        <a href="#returns">Purchase returns</a>
-      </nav>
-      <main id="main" class="main"></main>
+  <!-- Sign-in -->
+  <div id="login" class="auth-page" hidden>
+    <div class="auth-card">
+      <img src="assets/DEPL_logo.png" alt="Dynamic Engineers logo" class="auth-logo" />
+      <h1>MAX <span style="color:var(--primary)">ERP</span></h1>
+      <p class="sub">Sign in to Dynamic Engineers' operating system.</p>
+      <form id="f-login">
+        <div class="field">
+          <label for="li-email">Email</label>
+          <input id="li-email" name="email" type="email" required autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="li-pass">Password</label>
+          <input id="li-pass" name="password" type="password" required minlength="6" autocomplete="current-password" />
+        </div>
+        <button class="btn" type="submit">Sign in</button>
+      </form>
+      <p class="muted small" style="text-align:center;margin-top:16px">
+        New here? <button type="button" class="link-btn" data-act="signup">Create an account</button>
+      </p>
+      <p id="login-error" class="err-text" hidden></p>
     </div>
   </div>
 
-  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <!-- Application shell (same structure as the MAX ERP console) -->
+  <div id="app" class="shell" hidden>
+    <aside class="sidebar">
+      <div class="brand">MAX <span>ERP</span></div>
+      <nav>
+        <a href="#dashboard" class="nav-link" data-route="dashboard"><span class="nav-icon">🏠</span>Dashboard</a>
+        <a href="#items" class="nav-link" data-route="items"><span class="nav-icon">📦</span>Items</a>
+        <a href="#bom" class="nav-link" data-route="bom"><span class="nav-icon">🧩</span>Bill of materials</a>
+        <a href="#vendors" class="nav-link" data-route="vendors"><span class="nav-icon">🤝</span>Vendors</a>
+        <a href="#po" class="nav-link" data-route="po"><span class="nav-icon">🧾</span>Purchase orders</a>
+        <a href="#grn" class="nav-link" data-route="grn"><span class="nav-icon">📥</span>Goods receipts</a>
+        <a href="#iqc" class="nav-link" data-route="iqc"><span class="nav-icon">🔬</span>Inspections</a>
+        <a href="#returns" class="nav-link" data-route="returns"><span class="nav-icon">↩️</span>Purchase returns</a>
+        <a href="#stock" class="nav-link" data-route="stock"><span class="nav-icon">📊</span>Stock</a>
+        <a href="#issue" class="nav-link" data-route="issue"><span class="nav-icon">🏭</span>Issue to production</a>
+        <a href="#ledger" class="nav-link" data-route="ledger"><span class="nav-icon">📒</span>Stock ledger</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-chip">
+          <div class="avatar" id="avatar">?</div>
+          <div style="min-width:0">
+            <div class="user-name" id="who"></div>
+            <div class="user-role">Signed in</div>
+          </div>
+        </div>
+        <button class="btn-ghost" data-act="signout">Sign out</button>
+      </div>
+    </aside>
+    <main class="main" id="main"></main>
+  </div>
+
+  <div id="toasts"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="app.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
