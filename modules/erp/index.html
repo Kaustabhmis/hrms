@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>MAX ERP - Inventory, Purchase and Stores</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="login" class="login" hidden>
+    <form id="f-login" class="login-card">
+      <h1>MAX ERP</h1>
+      <p class="muted">Inventory, purchase and stores. Sign in with your work email.</p>
+      <label>Email <input name="email" type="email" required autocomplete="username"></label>
+      <label>Password <input name="password" type="password" required minlength="6" autocomplete="current-password"></label>
+      <div class="row">
+        <button type="submit" class="btn">Sign in</button>
+        <button type="button" class="btn secondary" data-act="signup">Create account</button>
+      </div>
+      <p class="muted small">New accounts may need email confirmation before the first sign-in.</p>
+    </form>
+  </div>
+
+  <div id="app" class="app" hidden>
+    <header class="top">
+      <a class="brand" href="../../index.html">MAX <span>ERP</span></a>
+      <span id="who" class="muted small"></span>
+      <button class="btn secondary small" data-act="signout">Sign out</button>
+    </header>
+    <div class="layout">
+      <nav class="side">
+        <p class="nav-group">Masters</p>
+        <a href="#items">Items</a>
+        <a href="#bom">Bill of materials</a>
+        <a href="#vendors">Vendors</a>
+        <p class="nav-group">Purchase</p>
+        <a href="#po">Purchase orders</a>
+        <p class="nav-group">Stores</p>
+        <a href="#grn">Goods receipts</a>
+        <a href="#stock">Stock</a>
+        <a href="#issue">Issue to production</a>
+        <a href="#ledger">Stock ledger</a>
+        <p class="nav-group">Quality</p>
+        <a href="#iqc">Inspections</a>
+        <a href="#returns">Purchase returns</a>
+      </nav>
+      <main id="main" class="main"></main>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
