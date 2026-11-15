@@ -585,9 +585,10 @@
     ]);
     const order = { "Draft": 0, "Pending verification": 1, "Verified": 2, "Released": 3, "Closed": 4, "Cancelled": 5 };
     const ps = must(pos).sort((a, b) => order[a.status] - order[b.status]);
+    const who = await peopleNames(ps.flatMap((p) => [p.created_by, p.verified_by]));
     const actionFor = (p) => {
       if (p.status === "Draft") return `<button class="btn" data-act="po-submit" data-id="${p.id}" data-done="Released for verification!">Release for verification</button>`;
-      if (p.status === "Pending verification") return `<button class="btn" data-act="po-verify" data-id="${p.id}" data-done="Verified!">Verify</button>`;
+      if (p.status === "Pending verification") return `<a class="btn" href="#po/${p.id}">Check and verify</a>`;
       if (p.status === "Verified") return p.created_by === uid
         ? '<span class="muted small">Someone else must send it (you made it)</span>'
         : `<button class="btn" data-act="po-release" data-id="${p.id}" data-confirm="Send this PO to the supplier now?" data-title="Send PO" data-done="Sent to the supplier!">Send to supplier</button>`;
@@ -597,10 +598,10 @@
     const rows = ps.map((p) => {
       const total = (p.lines || []).reduce((s, l) => s + Number(l.qty) * Number(l.rate), 0);
       const what = (p.lines || []).map((l) => `${itemLabel(l.item)} x ${fmt(l.qty)}`).join(", ");
-      return `<tr><td class="mono"><a href="#po/${p.id}">${esc(p.po_no)}</a></td><td>${esc(p.vendor && p.vendor.name)}</td><td>${esc(what)}</td><td class="num">${money(total)}</td><td>${dt(p.expected_date)}</td><td>${statusBadge(p.status)}</td><td>${actionFor(p)}</td></tr>`;
-    }).join("") || '<tr><td colspan="7" class="muted">No POs yet. Make one on <a href="#compare">Compare and choose</a>.</td></tr>';
+      return `<tr><td class="mono"><a href="#po/${p.id}">${esc(p.po_no)}</a></td><td>${esc(p.vendor && p.vendor.name)}</td><td>${esc(what)}</td><td class="num">${money(total)}</td><td>${dt(p.expected_date)}</td><td>${statusBadge(p.status)}</td><td class="small">${esc(who(p.created_by)) || "—"}</td><td class="small">${esc(who(p.verified_by)) || "—"}</td><td>${actionFor(p)}</td></tr>`;
+    }).join("") || '<tr><td colspan="9" class="muted">No POs yet. Make one on <a href="#compare">Compare and choose</a>.</td></tr>';
     return pageHeader("8. Release and verify PO", "Release the PO for verification. Someone checks supplier, price and terms. Then it is sent to the supplier.") + `
-      ${panel("Purchase orders", `<div class="table-wrap"><table><thead><tr><th>PO</th><th>Supplier</th><th>What</th><th class="num">Money</th><th>Expected</th><th>How it is</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${panel("Purchase orders", `<div class="table-wrap"><table><thead><tr><th>PO</th><th>Supplier</th><th>What</th><th class="num">Money</th><th>Expected</th><th>How it is</th><th>Made by</th><th>Verified by</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
         <p class="muted small" style="margin-top:10px">The person who made a PO cannot be the one who sends it to the supplier.</p>`)}`;
   };
 
@@ -864,36 +865,113 @@
       ${panel(`${list.length} vendors`, `<div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>GSTIN</th><th>Payment terms</th><th>Address</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   };
 
+  // ---------- PO preview: who made it, who verified it, who sent it; verifier can edit ----------
+  const COMPANY = { name: "Dynamic Engineers Private Limited", address: "28 Barrackpore Trunk Road, Kolkata 700002", gstin: "19AABCD0345D1Z5" };
+  const STAND_IN_APPROVER = "00000000-0000-0000-0000-00000000d3e0";
+  const dtm = (v) => (v ? new Date(v).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "");
+  async function peopleNames(ids) {
+    const list = [...new Set(ids.filter(Boolean))];
+    const map = { [STAND_IN_APPROVER]: "Second approver (sample data)" };
+    if (list.length) {
+      const { data } = await sb.rpc("user_emails", { p_ids: list });
+      for (const r of data || []) map[r.id] = r.email;
+    }
+    return (id) => (id ? map[id] || "Unknown user" : "");
+  }
+
   async function poDetail(id) {
-    const [head, lines, grns, uid] = await Promise.all([
-      sb.from("purchase_order").select("*, vendor:vendor_id(name, vendor_code)").eq("id", id).single(),
-      sb.from("po_line").select("*, item:item_id(item_code, short_name, stock_uom)").eq("po_id", id),
-      sb.from("grn").select("grn_line(item_id, qty)").eq("po_id", id),
+    const [head, lines, logs, vendors, uid] = await Promise.all([
+      sb.from("purchase_order").select("*, vendor:vendor_id(name, vendor_code, gstin, address, payment_terms)").eq("id", id).single(),
+      sb.from("po_line").select("*, item:item_id(item_code, short_name, stock_uom)").eq("po_id", id).order("id"),
+      sb.from("po_change_log").select("*").eq("po_id", id).order("changed_at", { ascending: false }),
+      sb.from("vendor").select("id, name, payment_terms").order("name"),
       currentUserId(),
     ]);
-    const p = must(head);
-    const ls = must(lines);
-    const received = {};
-    for (const g of must(grns)) for (const gl of g.grn_line || []) received[gl.item_id] = (received[gl.item_id] || 0) + Number(gl.qty);
+    const p = must(head), ls = must(lines), changes = must(logs);
+    const who = await peopleNames([p.created_by, p.verified_by, p.released_by, ...changes.map((c) => c.changed_by)]);
+    const editable = p.status === "Draft" || p.status === "Pending verification";
+    const isMaker = p.created_by === uid;
 
-    const isCreator = p.created_by === uid;
-    let action = "";
-    if (p.status === "Draft") action = `<button class="btn" data-act="po-submit" data-id="${id}" data-done="Released for verification!">Release for verification</button>`;
-    else if (p.status === "Pending verification") action = `<button class="btn" data-act="po-verify" data-id="${id}" data-done="Verified!">Verify</button>`;
-    else if (p.status === "Verified") {
-      action = isCreator
-        ? `<button class="btn" disabled>Send to supplier</button><p class="muted small" style="margin-top:8px">You created this PO, so another approver must release it.</p>`
-        : `<button class="btn" data-act="po-release" data-id="${id}" data-done="Sent to the supplier!" data-confirm="Send this order to the supplier now?" data-title="Send to supplier">Send to supplier</button>`;
+    let taxable = 0, gst = 0;
+    const docRows = ls.map((l, i) => {
+      const amt = Number(l.qty) * Number(l.rate);
+      const tax = amt * Number(l.gst_rate || 0) / 100;
+      taxable += amt; gst += tax;
+      return `<tr><td>${i + 1}</td><td class="mono">${esc(l.item.item_code)}</td><td>${esc(l.item.short_name)}</td><td class="num">${fmt(l.qty)}</td><td>${esc(l.item.stock_uom)}</td><td class="num">${money(l.rate)}</td><td class="num">${fmt(l.gst_rate)}</td><td class="num">${money(amt)}</td><td class="num">${money(tax)}</td><td class="num">${money(amt + tax)}</td></tr>`;
+    }).join("");
+    const sign = (label, person, when, waiting) => `<div class="po-sign-box"><div class="po-label">${label}</div>${person ? `<strong>${esc(person)}</strong><div class="muted small">${esc(when)}</div>` : `<span class="muted">${waiting}</span>`}</div>`;
+    const doc = `
+      <div class="po-doc po-sheet">
+        <div class="po-head">
+          <div class="po-co"><img src="assets/DEPL_logo.png" alt="" class="po-logo" /><div><strong>${esc(COMPANY.name)}</strong><div>${esc(COMPANY.address)}</div><div>GSTIN: ${esc(COMPANY.gstin)}</div></div></div>
+          <div class="po-title"><div class="po-word">PURCHASE ORDER</div><div><strong>${esc(p.po_no)}</strong></div><div>Date: ${dt(p.po_date)}</div><div>${statusBadge(p.status)}</div></div>
+        </div>
+        <div class="po-parties">
+          <div><div class="po-label">Supplier</div><strong>${esc(p.vendor && p.vendor.name)}</strong><div>${esc(p.vendor && p.vendor.address) || ""}</div>${p.vendor && p.vendor.gstin ? `<div>GSTIN: ${esc(p.vendor.gstin)}</div>` : ""}</div>
+          <div><div class="po-label">Deliver to</div><strong>${esc(COMPANY.name)}</strong><div>${esc(p.unit)}</div><div>Expected by: ${dt(p.expected_date)}</div><div>Payment terms: ${esc(p.payment_terms) || "—"}</div></div>
+        </div>
+        <table class="po-lines"><thead><tr><th>#</th><th>Code</th><th>Thing</th><th class="num">Qty</th><th>Unit</th><th class="num">Price</th><th class="num">GST %</th><th class="num">Amount</th><th class="num">GST</th><th class="num">Total</th></tr></thead>
+          <tbody>${docRows || '<tr><td colspan="10" class="muted">No lines.</td></tr>'}</tbody>
+          <tfoot>
+            <tr><td colspan="9" class="num">Amount before GST</td><td class="num">${money(taxable)}</td></tr>
+            <tr><td colspan="9" class="num">GST</td><td class="num">${money(gst)}</td></tr>
+            <tr class="po-grand"><td colspan="9" class="num">Total</td><td class="num">${money(taxable + gst)}</td></tr>
+          </tfoot></table>
+        ${p.remarks ? `<div class="po-remarks"><div class="po-label">Remarks</div>${esc(p.remarks)}</div>` : ""}
+        <div class="po-sign">
+          ${sign("Made by", who(p.created_by), dtm(p.created_at), "")}
+          ${sign("Verified by", who(p.verified_by), dtm(p.verified_at), "Waiting for verification")}
+          ${sign("Sent to supplier by", who(p.released_by), dtm(p.released_at), "Not sent yet")}
+        </div>
+      </div>`;
+
+    let action = "", hint = "";
+    if (p.status === "Draft") {
+      action = `<button class="btn" data-act="po-submit" data-id="${id}" data-done="Released for verification!">Release for verification</button>`;
+      hint = "The maker can still edit it. After releasing, the verifier checks it and can change it.";
+    } else if (p.status === "Pending verification") {
+      action = `<button class="btn" data-act="po-verify" data-id="${id}" data-confirm="Have you checked supplier, price, GST, quantity and terms? Verified POs cannot be changed." data-title="Verify PO" data-done="Verified!">Verify</button>`;
+      hint = "Verifier: check the preview. Fix anything below, save, then press Verify.";
+    } else if (p.status === "Verified") {
+      action = isMaker
+        ? `<button class="btn" disabled>Send to supplier</button>`
+        : `<button class="btn" data-act="po-release" data-id="${id}" data-done="Sent to the supplier!" data-confirm="Send this PO to the supplier now?" data-title="Send to supplier">Send to supplier</button>`;
+      hint = isMaker ? "You made this PO, so someone else must send it to the supplier." : "Verified and locked. Send it to the supplier.";
+    } else if (p.status === "Released") {
+      action = '<a class="btn-ghost" href="#followup">Follow up</a>';
+      hint = "Sent to the supplier. Chase it on PO follow-up.";
     }
-    const rows = ls.map((l) => {
-      const rec = received[l.item_id] || 0;
-      return `<tr><td>${esc(itemLabel(l.item))}</td><td class="num">${fmt(l.qty)}</td><td class="num">${money(l.rate)}</td><td class="num">${fmt(l.gst_rate)}</td><td class="num">${money(l.qty * l.rate)}</td><td class="num">${fmt(rec)}</td><td class="num">${fmt(Math.max(0, l.qty - rec))}</td></tr>`;
-    }).join("") || '<tr><td colspan="7" class="muted">No lines.</td></tr>';
+
+    const editPanel = editable ? `
+      <section class="panel no-print"><div class="panel-header"><h3>${p.status === "Draft" ? "Edit before releasing" : "Verifier: check and edit"}</h3></div><div class="panel-body">
+        <form id="f-poedit" data-id="${id}">
+          <div class="form-grid">
+            <div class="field"><label>Supplier</label><select name="vendor_id">${opts(must(vendors), "id", (v) => `${v.name}${v.payment_terms ? " (" + v.payment_terms + ")" : ""}`, p.vendor_id)}</select></div>
+            <div class="field"><label>Expected by</label><input name="expected_date" type="date" value="${p.expected_date || ""}" /></div>
+            <div class="field"><label>Payment terms</label><input name="payment_terms" value="${esc(p.payment_terms || "")}" placeholder="30 days" /></div>
+            <div class="field" style="grid-column:1/-1"><label>Remarks</label><input name="remarks" value="${esc(p.remarks || "")}" placeholder="For example: price agreed on phone" /></div>
+          </div>
+          <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Thing</th><th>How many</th><th>Price each</th><th>GST %</th></tr></thead><tbody>
+            ${ls.map((l) => `<tr><td>${esc(itemLabel(l.item))}</td><td><input type="number" step="any" min="0.001" data-line="${l.id}" data-field="qty" value="${Number(l.qty)}" /></td><td><input type="number" step="any" min="0" data-line="${l.id}" data-field="rate" value="${Number(l.rate)}" /></td><td><input type="number" step="any" min="0" data-line="${l.id}" data-field="gst_rate" value="${Number(l.gst_rate || 0)}" /></td></tr>`).join("")}
+          </tbody></table></div>
+          <div class="form-actions"><button class="btn">Save changes</button></div>
+          <p class="muted small" style="margin-top:8px">Every change is saved in the history below with your name and the time.</p>
+        </form>
+      </div></section>` : "";
+
+    const history = changes.map((c) => `<tr><td>${dtm(c.changed_at)}</td><td>${esc(who(c.changed_by))}</td><td>${esc(c.field)}</td><td>${esc(c.old_value) || "—"}</td><td>${esc(c.new_value) || "—"}</td></tr>`).join("")
+      || '<tr><td colspan="5" class="muted">No changes made.</td></tr>';
+    const receipts = ["Released", "Closed"].includes(p.status)
+      ? panel("Deliveries", `<div class="table-wrap"><table><thead><tr><th>Thing</th><th class="num">Ordered</th><th class="num">Received</th><th class="num">Still to come</th></tr></thead><tbody>${ls.map((l) => `<tr><td>${esc(itemLabel(l.item))}</td><td class="num">${fmt(l.qty)}</td><td class="num">${fmt(l.received_qty)}</td><td class="num">${fmt(Math.max(0, Number(l.qty) - Number(l.received_qty || 0)))}</td></tr>`).join("")}</tbody></table></div>`).replace('class="panel"', 'class="panel no-print"')
+      : "";
 
     return `
-      ${pageHeader(p.po_no, `${p.vendor ? p.vendor.name : ""} · Unit ${p.unit} · ${dt(p.po_date)}`, `<a class="btn-ghost" href="#po">All POs</a>`)}
-      ${panel("Status", `<div class="row" style="justify-content:space-between">${statusBadge(p.status)}<div class="row">${action}</div></div>`)}
-      ${panel("Lines", `<div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">How many</th><th class="num">Price each</th><th class="num">GST %</th><th class="num">Money</th><th class="num">Received</th><th class="num">Outstanding</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+      ${pageHeader(`PO ${p.po_no}`, `${p.vendor ? p.vendor.name : ""} · ${p.unit}`, `<button class="btn-ghost" data-act="print">🖨️ Print</button> <a class="btn-ghost" href="#po">All POs</a>`)}
+      <section class="panel no-print"><div class="panel-body"><div class="row" style="justify-content:space-between"><span>${esc(hint)}</span><div class="row">${action}</div></div></div></section>
+      <section class="panel po-panel"><div class="panel-body">${doc}</div></section>
+      ${editPanel}
+      ${receipts}
+      ${panel("Change history", `<div class="table-wrap"><table><thead><tr><th>When</th><th>Who</th><th>What</th><th>Old</th><th>New</th></tr></thead><tbody>${history}</tbody></table></div>`).replace('class="panel"', 'class="panel no-print"')}`;
   }
 
   VIEWS.iqc = async () => {
@@ -1058,6 +1136,21 @@
   };
 
   FORMS["f-forecastfilter"] = async () => "skip-route";
+
+  FORMS["f-poedit"] = async (f) => {
+    const v = collect(f);
+    const lines = {};
+    f.querySelectorAll("input[data-line]").forEach((i) => {
+      (lines[i.dataset.line] = lines[i.dataset.line] || { line_id: i.dataset.line })[i.dataset.field] = i.value === "" ? null : Number(i.value);
+    });
+    const n = must(await sb.rpc("edit_po", {
+      p_po_id: f.dataset.id, p_vendor_id: v.vendor_id, p_expected_date: v.expected_date,
+      p_payment_terms: v.payment_terms || "", p_remarks: v.remarks || "", p_lines: Object.values(lines),
+    }));
+    toast(n ? `${n} change(s) saved` : "Nothing was changed", n ? "success" : "info");
+    await route();
+    return "skip-route";
+  };
 
   // Material received: choosing a PO fills in the supplier and what is still to come.
   document.addEventListener("change", async (e) => {
