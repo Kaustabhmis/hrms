@@ -72,3 +72,8 @@ td .btn-ghost { white-space: nowrap; }
   .po-sheet .badge { border: 1px solid #999; }
 }
 @media print { html, body, .shell, .main { background: #fff !important; } }
+
+/* Supplier comparison: last invoices inside a row */
+table.mini { width: auto; margin-top: 6px; font-size: 12px; }
+table.mini th, table.mini td { padding: 3px 8px; border-bottom: 1px solid var(--border); }
+.cmp details summary { cursor: pointer; color: var(--primary); font-weight: 600; }

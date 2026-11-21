@@ -50,6 +50,7 @@
         <p class="nav-group">Buy</p>
         <a href="#pr" class="nav-link" data-route="pr"><span class="nav-icon">📝</span>6. PO requisition</a>
         <a href="#compare" class="nav-link" data-route="compare"><span class="nav-icon">⚖️</span>7. Compare and choose</a>
+        <a href="#lastbuy" class="nav-link" data-route="lastbuy"><span class="nav-icon">🧮</span>Last purchases</a>
         <a href="#po" class="nav-link" data-route="po"><span class="nav-icon">🧾</span>8. Release and verify PO</a>
         <a href="#followup" class="nav-link" data-route="followup"><span class="nav-icon">📞</span>9. PO follow-up</a>
         <p class="nav-group">Store</p>
@@ -61,6 +62,7 @@
         <a href="#production" class="nav-link" data-route="production"><span class="nav-icon">🛠️</span>14. Production record</a>
         <a href="#ready" class="nav-link" data-route="ready"><span class="nav-icon">🎉</span>15. Ready for sale</a>
         <p class="nav-group">More</p>
+        <a href="#import" class="nav-link" data-route="import"><span class="nav-icon">⬆️</span>Import from Expert</a>
         <a href="#returns" class="nav-link" data-route="returns"><span class="nav-icon">↩️</span>Send back to supplier</a>
         <a href="#customers" class="nav-link" data-route="customers"><span class="nav-icon">🧑‍💼</span>Customers</a>
         <a href="#vendors" class="nav-link" data-route="vendors"><span class="nav-icon">🤝</span>Suppliers</a>
@@ -85,6 +87,8 @@
   <div id="toasts"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="js/expert-backup.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

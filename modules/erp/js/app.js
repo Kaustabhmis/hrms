@@ -32,6 +32,18 @@
     return res.data;
   }
 
+  // Supabase returns at most 1,000 rows per request. all() fetches every page and returns
+  // { data, error } like a normal query, so must() works the same.
+  async function all(make) {
+    const data = [];
+    for (let from = 0; ; from += 1000) {
+      const r = await make().range(from, from + 999);
+      if (r.error) return r;
+      data.push(...r.data);
+      if (r.data.length < 1000) return { data, error: null };
+    }
+  }
+
   function friendly(e) {
     const m = (e && e.message) || String(e);
     if (/po_creator_cannot_release/.test(m)) return "You created this PO, so another approver must release it.";
@@ -266,8 +278,8 @@
     const [orders, boms, bal, items] = await Promise.all([
       loadOpenOrders(),
       sb.from("bom_header").select("id, fg_item_id, version, lines:bom_line(component_item_id, qty_per, scrap_pct)").eq("is_active", true),
-      sb.from("stock_balance").select("item_id, unit, qty").eq("bucket", "Unrestricted"),
-      sb.from("item").select("id, item_code, short_name"),
+      all(() => sb.from("stock_balance").select("item_id, unit, qty").eq("bucket", "Unrestricted")),
+      all(() => sb.from("item").select("id, item_code, short_name")),
     ]);
     const recipes = recipeMap(must(boms));
     const names = {};
@@ -303,10 +315,10 @@
   async function loadMaterialBuffers() {
     const since = new Date(Date.now() - 30 * DAY).toISOString();
     const [items, bal, use, pol, orders, boms, prs] = await Promise.all([
-      sb.from("item").select("*").order("item_code"),
-      sb.from("stock_balance").select("item_id, bucket, qty"),
-      sb.from("stock_ledger").select("item_id, qty").eq("movement_code", "ISS").eq("bucket", "Unrestricted").gte("posted_at", since),
-      sb.from("po_line").select("item_id, qty, received_qty, po:po_id(status)"),
+      all(() => sb.from("item").select("*").order("item_code")),
+      all(() => sb.from("stock_balance").select("item_id, bucket, qty")),
+      all(() => sb.from("stock_ledger").select("item_id, qty").eq("movement_code", "ISS").eq("bucket", "Unrestricted").gte("posted_at", since)),
+      all(() => sb.from("po_line").select("item_id, qty, received_qty, po:po_id(status)")),
       loadOpenOrders(),
       sb.from("bom_header").select("id, fg_item_id, version, lines:bom_line(component_item_id, qty_per, scrap_pct)").eq("is_active", true),
       sb.from("purchase_requisition").select("item_id").eq("status", "Open"),
@@ -427,8 +439,8 @@
   VIEWS.orders = async (id) => {
     if (id) return orderDetail(id);
     const [custs, items, orders] = await Promise.all([
-      sb.from("customer").select("id, name, customer_code").order("name"),
-      sb.from("item").select("id, item_code, short_name, item_type").order("item_code"),
+      all(() => sb.from("customer").select("id, name, customer_code").order("name")),
+      all(() => sb.from("item").select("id, item_code, short_name, item_type").order("item_code")),
       sb.from("customer_order").select("*, customer:customer_id(name)").order("created_at", { ascending: false }).limit(200),
     ]);
     const cs = must(custs), its = must(items).filter((i) => i.item_type === "FG" || i.item_type === "SFG"), os = must(orders);
@@ -517,7 +529,7 @@
   VIEWS.pr = async () => {
     const [prs, items, buf] = await Promise.all([
       sb.from("purchase_requisition").select("*, item:item_id(item_code, short_name, stock_uom), po:po_id(po_no)").order("created_at", { ascending: false }).limit(300),
-      sb.from("item").select("id, item_code, short_name, item_type").order("item_code"),
+      all(() => sb.from("item").select("id, item_code, short_name, item_type").order("item_code")),
       loadMaterialBuffers(),
     ]);
     const list = must(prs);
@@ -538,42 +550,6 @@
     return pageHeader("6. PO requisition", "A list of things we need to buy. Most are made from the forecast with one click.") + `
       ${panel("Ask to buy something", form)}
       ${panel("Requisitions", `<div class="table-wrap"><table><thead><tr><th>No</th><th>Thing</th><th class="num">How many</th><th>Unit</th><th>Needed by</th><th>Buffer</th><th>Why</th><th>How it is</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
-  };
-
-  // ---------- 7. Compare last purchase: vendor, rate and payment terms ----------
-  VIEWS.compare = async () => {
-    const [prs, vendors, history, buf] = await Promise.all([
-      sb.from("purchase_requisition").select("*, item:item_id(item_code, short_name, stock_uom)").eq("status", "Open").order("needed_by"),
-      sb.from("vendor").select("id, name, vendor_code, payment_terms").order("name"),
-      sb.from("po_line").select("item_id, qty, rate, po:po_id(po_no, po_date, status, vendor:vendor_id(id, name, payment_terms))"),
-      loadMaterialBuffers(),
-    ]);
-    const vs = must(vendors);
-    const hist = {};
-    for (const l of must(history)) {
-      if (!l.po || ["Draft", "Cancelled"].includes(l.po.status)) continue;
-      (hist[l.item_id] = hist[l.item_id] || []).push(l);
-    }
-    const list = must(prs);
-    list.sort((a, b) => ZONE_RANK[(buf.byItem[a.item_id] || {}).zone || "green"] - ZONE_RANK[(buf.byItem[b.item_id] || {}).zone || "green"]);
-    const blocks = list.map((p) => {
-      const past = (hist[p.item_id] || []).sort((a, b) => String(b.po.po_date).localeCompare(String(a.po.po_date))).slice(0, 5);
-      const last = past[0];
-      const cheapest = past.reduce((m, l) => (m == null || Number(l.rate) < Number(m.rate) ? l : m), null);
-      const z = buf.byItem[p.item_id];
-      const histRows = past.map((l) => `<tr><td>${dt(l.po.po_date)}</td><td class="mono">${esc(l.po.po_no)}</td><td>${esc(l.po.vendor && l.po.vendor.name)}${l === cheapest ? " " + badge("Cheapest", "green") : ""}${l === last ? " " + badge("Last", "blue") : ""}</td><td class="num">${money(l.rate)}</td><td class="num">${fmt(l.qty)}</td><td>${esc(l.po.vendor && l.po.vendor.payment_terms) || "—"}</td></tr>`).join("")
-        || '<tr><td colspan="6" class="muted">Never bought before.</td></tr>';
-      const vendorSel = `<select name="vendor" required>${opts(vs, "id", (v) => `${v.name}${v.payment_terms ? " (" + v.payment_terms + ")" : ""}`, last && last.po.vendor ? last.po.vendor.id : "", "Choose a supplier")}</select>`;
-      return `<section class="panel"><div class="panel-header"><h3>${esc(p.pr_no)} · ${esc(itemLabel(p.item))} · ${fmt(p.qty)} ${p.item ? p.item.stock_uom : ""}</h3><div class="actions">${z ? zoneBadge(z.zone, STOCK_WORDS) : ""}</div></div><div class="panel-body">
-        <p class="muted small">Needed by ${dt(p.needed_by)} at ${esc(p.unit)}. ${esc(p.reason || "")}</p>
-        <div class="table-wrap"><table><thead><tr><th>Date</th><th>PO</th><th>Supplier</th><th class="num">Price each</th><th class="num">How many</th><th>Payment terms</th></tr></thead><tbody>${histRows}</tbody></table></div>
-        <div class="inline-form" style="margin-top:12px">
-          <div class="field" style="min-width:280px"><label>Choose supplier</label>${vendorSel}</div>
-          <div class="field"><label>Price each</label><input name="rate" type="number" step="any" min="0" value="${last ? last.rate : ""}" /></div>
-          <div class="form-actions"><button class="btn" data-act="pr-to-po" data-id="${p.id}" data-done="PO made! Now release it for verification.">Make PO</button></div>
-        </div></div></section>`;
-    }).join("");
-    return pageHeader("7. Compare and choose", "Look at the last purchases of the same thing: supplier, price and payment terms. Then make the PO.") + (blocks || panel("Nothing to compare", '<p class="muted">No open requisitions. <a href="#pr">Make a requisition first.</a></p>'));
   };
 
   // ---------- 8. Release PO and send for verification ----------
@@ -640,8 +616,8 @@
   VIEWS.grn = async (id) => {
     if (id) return grnDetail(id);
     const [vendors, items, pos, grns] = await Promise.all([
-      sb.from("vendor").select("id, name, vendor_code").order("name"),
-      sb.from("item").select("id, item_code, short_name").order("item_code"),
+      all(() => sb.from("vendor").select("id, name, vendor_code").order("name")),
+      all(() => sb.from("item").select("id, item_code, short_name").order("item_code")),
       sb.from("purchase_order").select("id, po_no, vendor:vendor_id(name)").eq("status", "Released").order("po_no"),
       sb.from("grn").select("*, vendor:vendor_id(name)").order("created_at", { ascending: false }).limit(200),
     ]);
@@ -689,7 +665,7 @@
     const blocks = must(drafts).map((g) => {
       const rows = g.lines.map((l) => `<tr><td>${esc(itemLabel(l.item))}</td><td>${esc(l.batch_no) || "—"}</td><td class="num">${fmt(l.qty)}</td>
         <td><label class="yn"><input type="radio" name="ok_${l.id}" value="yes" checked /> Yes</label> <label class="yn"><input type="radio" name="ok_${l.id}" value="no" data-line="${l.id}" /> No</label></td></tr>`).join("");
-      return `<section class="panel"><div class="panel-header"><h3>${esc(g.grn_no)} · ${esc(g.vendor && g.vendor.name)}</h3></div><div class="panel-body">
+      return `<section class="panel"><div class="panel-header"><h3>${esc(g.grn_no)} · ${esc(g.vendor && g.vendor.name)}${g.expert_doc_no ? " · Expert challan " + esc(g.expert_doc_no) : ""}</h3></div><div class="panel-body">
         <p class="muted small">Came on ${dt(g.received_on)} at ${esc(g.unit)}. Count each thing. Is it the same as the challan?</p>
         <div class="table-wrap"><table><thead><tr><th>Thing</th><th>Batch</th><th class="num">On challan</th><th>Count is right?</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div class="inline-form" style="margin-top:12px"><div class="field" style="min-width:280px"><label>Note for "No" lines</label><input name="remarks" placeholder="For example: 5 short" /></div>
@@ -757,7 +733,7 @@
 
   // ---------- Customers ----------
   VIEWS.customers = async () => {
-    const list = must(await sb.from("customer").select("*").order("name"));
+    const list = must(await all(() => sb.from("customer").select("*").order("name")));
     const form = `
       <form id="f-customer" class="form-grid">
         <div class="field"><label>Customer code</label><input name="customer_code" required /></div>
@@ -773,7 +749,7 @@
 
   VIEWS.items = async () => {
     const [items, uoms] = await Promise.all([
-      sb.from("item").select("*").order("item_code"),
+      all(() => sb.from("item").select("*").order("item_code")),
       sb.from("uom").select("*").order("code"),
     ]);
     const list = must(items);
@@ -807,7 +783,7 @@
   VIEWS.bom = async (id) => {
     if (id) return bomDetail(id);
     const [items, heads] = await Promise.all([
-      sb.from("item").select("id,item_code,short_name,item_type").order("item_code"),
+      all(() => sb.from("item").select("id,item_code,short_name,item_type").order("item_code")),
       sb.from("bom_header").select("*, fg:fg_item_id(item_code, short_name)").order("fg_item_id"),
     ]);
     const itemList = must(items);
@@ -848,21 +824,22 @@
   }
 
   VIEWS.vendors = async () => {
-    const list = must(await sb.from("vendor").select("*").order("vendor_code"));
+    const list = must(await all(() => sb.from("vendor").select("*").order("vendor_code")));
     const form = `
       <form id="f-vendor" class="form-grid">
         <div class="field"><label>Supplier code</label><input name="vendor_code" required /></div>
         <div class="field"><label>Name</label><input name="name" required /></div>
         <div class="field"><label>GSTIN</label><input name="gstin" maxlength="15" /></div>
         <div class="field"><label>Payment terms</label><input name="payment_terms" placeholder="30 days" /></div>
+        <div class="field"><label>Lead time (days)</label><input name="lead_time_days" type="number" min="0" step="1" /></div>
         <div class="field" style="grid-column:1/-1"><label>Address</label><input name="address" /></div>
         <div class="form-actions"><button class="btn">Save supplier</button></div>
       </form>`;
-    const rows = list.map((v) => `<tr><td class="mono">${esc(v.vendor_code)}</td><td>${esc(v.name)}</td><td>${esc(v.gstin) || "—"}</td><td>${esc(v.payment_terms) || "—"}</td><td>${esc(v.address) || "—"}</td></tr>`).join("")
-      || '<tr><td colspan="5" class="muted">No vendors yet.</td></tr>';
+    const rows = list.map((v) => `<tr><td class="mono">${esc(v.vendor_code)}</td><td>${esc(v.name)}</td><td>${esc(v.gstin) || "—"}</td><td>${esc(v.payment_terms) || "—"}</td><td>${v.lead_time_days == null ? "—" : v.lead_time_days + " day(s)"}</td><td>${esc(v.address) || "—"}</td></tr>`).join("")
+      || '<tr><td colspan="6" class="muted">No vendors yet.</td></tr>';
     return pageHeader("Suppliers", "The shops and companies we buy things from.") + `
       ${panel("New vendor", form)}
-      ${panel(`${list.length} vendors`, `<div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>GSTIN</th><th>Payment terms</th><th>Address</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+      ${panel(`${list.length} vendors`, `<div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>GSTIN</th><th>Payment terms</th><th>Lead time</th><th>Address</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
   };
 
   // ---------- PO preview: who made it, who verified it, who sent it; verifier can edit ----------
@@ -884,7 +861,7 @@
       sb.from("purchase_order").select("*, vendor:vendor_id(name, vendor_code, gstin, address, payment_terms)").eq("id", id).single(),
       sb.from("po_line").select("*, item:item_id(item_code, short_name, stock_uom)").eq("po_id", id).order("id"),
       sb.from("po_change_log").select("*").eq("po_id", id).order("changed_at", { ascending: false }),
-      sb.from("vendor").select("id, name, payment_terms").order("name"),
+      all(() => sb.from("vendor").select("id, name, payment_terms").order("name")),
       currentUserId(),
     ]);
     const p = must(head), ls = must(lines), changes = must(logs);
@@ -1026,9 +1003,11 @@
 
   VIEWS.stock = async (_id, params) => {
     const unit = params.get("unit") || "";
-    let q = sb.from("stock_balance").select("unit, bucket, qty, item:item_id(item_code, short_name, stock_uom)").gt("qty", 0);
-    if (unit) q = q.eq("unit", unit);
-    const rows = must(await q);
+    const rows = must(await all(() => {
+      let q = sb.from("stock_balance").select("unit, bucket, qty, item:item_id(item_code, short_name, stock_uom)").gt("qty", 0);
+      if (unit) q = q.eq("unit", unit);
+      return q;
+    }));
     rows.sort((a, b) => a.unit.localeCompare(b.unit) || a.item.item_code.localeCompare(b.item.item_code) || BUCKETS.indexOf(a.bucket) - BUCKETS.indexOf(b.bucket));
     const filter = `<form id="f-stockfilter" class="inline-form"><div class="field"><label>Place</label><select name="unit"><option value="">All units</option>${UNITS.map((u) => `<option value="${u}"${u === unit ? " selected" : ""}>${u}</option>`).join("")}</select></div></form>`;
     const body = rows.map((r) => `<tr><td>${r.unit}</td><td>${esc(itemLabel(r.item))}</td><td>${badge(BUCKET_NAME[r.bucket] || r.bucket, r.bucket === "Blocked" ? "red" : r.bucket === "QI" ? "amber" : r.bucket === "Unrestricted" ? "green" : "gray")}</td><td class="num">${fmt(r.qty)}</td><td>${r.item.stock_uom}</td></tr>`).join("")
@@ -1041,7 +1020,7 @@
     const item = params.get("item") || "";
     let q = sb.from("stock_ledger").select("*, item:item_id(item_code, short_name)").order("id", { ascending: false }).limit(300);
     if (item) q = q.eq("item_id", item);
-    const [rows, items] = await Promise.all([q, sb.from("item").select("id,item_code,short_name").order("item_code")]);
+    const [rows, items] = await Promise.all([q, all(() => sb.from("item").select("id,item_code,short_name").order("item_code"))]);
     const list = must(rows);
     const its = must(items);
     const filter = `<form id="f-ledgerfilter" class="inline-form"><div class="field" style="min-width:320px"><label>Thing</label><select name="item"><option value="">Latest 300 movements (all items)</option>${opts(its, "id", itemLabel, item)}</select></div></form>`;
@@ -1189,6 +1168,218 @@
     document.querySelectorAll("td.calc").forEach((td) => {
       td.textContent = fmt(units * Number(td.dataset.per) * (1 + Number(td.dataset.scrap) / 100));
     });
+  });
+
+  // ---------- Supplier comparison: last 5 invoices of every supplier, sortable ----------
+  const termsDays = (t) => { const m = String(t || "").match(/(\d+)/); return m ? Number(m[1]) : 0; };
+
+  async function supplierComparison(itemId, opts) {
+    opts = opts || {};
+    const [exp, pos, vendors, done] = await Promise.all([
+      sb.from("expert_purchase_line").select("bill_no, bill_date, qty, unit, rate, vendor_id").eq("item_id", itemId).eq("kind", "PU").order("bill_date", { ascending: false }).limit(1000),
+      sb.from("po_line").select("qty, rate, po:po_id(po_no, po_date, status, vendor_id)").eq("item_id", itemId),
+      all(() => sb.from("vendor").select("id, name, payment_terms, lead_time_days")),
+      all(() => sb.from("purchase_order").select("vendor_id, released_at, grns:grn(received_on, status)").not("released_at", "is", null)),
+    ]);
+    const vmap = {};
+    for (const v of must(vendors)) vmap[v.id] = v;
+    // Real lead time from our own POs: days from sending the PO to the first delivery.
+    const lt = {};
+    for (const p of must(done)) {
+      const got = (p.grns || []).filter((g) => g.status === "Posted").map((g) => g.received_on).sort()[0];
+      if (!got) continue;
+      const d = Math.max(0, daysBetween(String(p.released_at).slice(0, 10), got));
+      (lt[p.vendor_id] = lt[p.vendor_id] || []).push(d);
+    }
+    const inv = {};
+    for (const l of must(exp)) (inv[l.vendor_id] = inv[l.vendor_id] || []).push({ date: l.bill_date, doc: l.bill_no, qty: Number(l.qty), unit: l.unit, rate: Number(l.rate), src: "Expert bill" });
+    for (const l of must(pos)) {
+      if (!l.po || ["Draft", "Cancelled"].includes(l.po.status)) continue;
+      (inv[l.po.vendor_id] = inv[l.po.vendor_id] || []).push({ date: l.po.po_date, doc: l.po.po_no, qty: Number(l.qty), unit: "", rate: Number(l.rate), src: "PO" });
+    }
+    const rows = Object.entries(inv).filter(([vid]) => vmap[vid]).map(([vid, list]) => {
+      list.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      const priced = list.filter((x) => x.rate > 0);
+      const last5 = list.slice(0, 5);
+      const p5 = last5.filter((x) => x.rate > 0);
+      const v = vmap[vid];
+      const real = lt[vid] && lt[vid].length ? Math.round(lt[vid].reduce((s, x) => s + x, 0) / lt[vid].length) : null;
+      return {
+        v, last5, count: list.length, lastDate: list[0].date,
+        lastRate: priced.length ? priced[0].rate : null,
+        avg5: p5.length ? p5.reduce((s, x) => s + x.rate, 0) / p5.length : null,
+        min: priced.length ? Math.min(...priced.map((x) => x.rate)) : null,
+        terms: v.payment_terms || "", termsDays: termsDays(v.payment_terms),
+        lead: real != null ? real : v.lead_time_days, leadHow: real != null ? "from our POs" : v.lead_time_days != null ? "set by you" : "",
+      };
+    });
+    if (!rows.length) return '<p class="muted">Never bought before. There is no purchase history for this item yet.</p>';
+    rows.sort((a, b) => (a.lastRate == null ? Infinity : a.lastRate) - (b.lastRate == null ? Infinity : b.lastRate));
+    const best = (key, dir) => rows.filter((r) => r[key] != null).reduce((m, r) => (m == null || (dir > 0 ? r[key] > m[key] : r[key] < m[key]) ? r : m), null);
+    const cheapest = best("lastRate", -1), fastest = best("lead", -1), longest = rows.some((r) => r.termsDays > 0) ? best("termsDays", 1) : null;
+    const body = rows.map((r) => `<tr data-price="${r.lastRate == null ? "" : r.lastRate}" data-avg="${r.avg5 == null ? "" : r.avg5}" data-lead="${r.lead == null ? "" : r.lead}" data-terms="${r.termsDays}" data-recent="${r.lastDate || ""}" data-count="${r.count}">
+      <td><strong>${esc(r.v.name)}</strong>${r === cheapest ? " " + badge("Cheapest", "green") : ""}${r === fastest ? " " + badge("Fastest", "blue") : ""}${r === longest ? " " + badge("Longest credit", "amber") : ""}</td>
+      <td class="num">${r.lastRate == null ? "—" : money(r.lastRate)}</td><td class="num">${r.avg5 == null ? "—" : money(r.avg5)}</td><td class="num">${r.min == null ? "—" : money(r.min)}</td>
+      <td>${dt(r.lastDate)}</td><td class="num">${r.count}</td><td>${esc(r.terms) || "—"}</td>
+      <td>${r.lead == null ? '<span class="muted small">Not known</span>' : `${r.lead} day(s) <span class="muted small">${esc(r.leadHow)}</span>`}</td>
+      <td><details><summary>Last ${r.last5.length}</summary><table class="mini"><thead><tr><th>Date</th><th>Bill / PO</th><th class="num">Qty</th><th class="num">Price</th></tr></thead><tbody>${r.last5.map((x) => `<tr><td>${dt(x.date)}</td><td class="mono">${esc(x.doc)}</td><td class="num">${fmt(x.qty)} ${esc(x.unit)}</td><td class="num">${money(x.rate)}</td></tr>`).join("")}</tbody></table></details></td>
+      ${opts.choose ? `<td><button type="button" class="btn-ghost cmp-choose" data-vendor="${r.v.id}" data-rate="${r.lastRate == null ? "" : r.lastRate}">Choose</button></td>` : ""}</tr>`).join("");
+    return `<div class="cmp">
+      <div class="inline-form" style="margin-bottom:10px"><div class="field"><label>Compare by</label><select class="cmp-sort">
+        <option value="price">Lowest last price</option><option value="avg">Lowest average price (last 5)</option>
+        <option value="lead">Shortest lead time</option><option value="terms">Longest payment terms</option>
+        <option value="recent">Most recently bought</option><option value="count">Bought most often</option></select></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Supplier</th><th class="num">Last price</th><th class="num">Average (last 5)</th><th class="num">Lowest ever</th><th>Last bought</th><th class="num">Times bought</th><th>Payment terms</th><th>Lead time</th><th>Invoices</th>${opts.choose ? "<th></th>" : ""}</tr></thead><tbody>${body}</tbody></table></div>
+      <p class="muted small" style="margin-top:8px">Prices are before GST. Lead time is the real average from our own POs where we have them, otherwise the number set on the supplier.</p></div>`;
+  }
+
+  // Re-sort a comparison table.
+  document.addEventListener("change", (e) => {
+    if (!e.target.classList || !e.target.classList.contains("cmp-sort")) return;
+    const key = e.target.value;
+    const tbody = e.target.closest(".cmp").querySelector("tbody");
+    const val = (tr) => tr.dataset[key];
+    const asc = ["price", "avg", "lead"].includes(key);
+    [...tbody.children].sort((a, b) => {
+      const x = val(a), y = val(b);
+      if (key === "recent") return String(y).localeCompare(String(x));
+      const nx = x === "" ? (asc ? Infinity : -Infinity) : Number(x), ny = y === "" ? (asc ? Infinity : -Infinity) : Number(y);
+      return asc ? nx - ny : ny - nx;
+    }).forEach((tr) => tbody.appendChild(tr));
+  });
+  // "Choose" fills in the supplier and price on Compare and choose.
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest(".cmp-choose");
+    if (!b) return;
+    const box = b.closest("section");
+    box.querySelector('[name="vendor"]').value = b.dataset.vendor;
+    if (b.dataset.rate !== "") box.querySelector('[name="rate"]').value = b.dataset.rate;
+    toast("Supplier chosen. Check the price, then press Make PO.", "info");
+  });
+
+  // ---------- Last purchases: pick any item ----------
+  VIEWS.lastbuy = async (_id, params) => {
+    const item = params.get("item") || "";
+    const items = must(await all(() => sb.from("item").select("id, item_code, short_name, item_type").neq("item_type", "FG").order("short_name")));
+    const pick = `<form id="f-lastbuy" class="inline-form"><div class="field" style="min-width:420px"><label>Thing</label><select name="item"><option value="">Choose a thing</option>${opts(items, "id", (i) => `${i.short_name} (${i.item_code})`, item)}</select></div></form>`;
+    return pageHeader("Last purchases and supplier comparison", "Every supplier we bought this from, their last 5 invoices, price, payment terms and lead time.") +
+      panel("Which thing?", pick) + (item ? panel("Suppliers", await supplierComparison(item)) : "");
+  };
+  FORMS["f-lastbuy"] = async () => "skip-route";
+  document.addEventListener("change", (e) => {
+    const f = e.target.form;
+    if (f && f.id === "f-lastbuy") location.hash = "#lastbuy?item=" + encodeURIComponent(f.item.value);
+  });
+
+  // ---------- 7. Compare and choose (with the full supplier comparison) ----------
+  VIEWS.compare = async () => {
+    const [prs, vendors, buf] = await Promise.all([
+      sb.from("purchase_requisition").select("*, item:item_id(item_code, short_name, stock_uom)").eq("status", "Open").order("needed_by"),
+      all(() => sb.from("vendor").select("id, name, vendor_code, payment_terms").order("name")),
+      loadMaterialBuffers(),
+    ]);
+    const vs = must(vendors);
+    const list = must(prs);
+    list.sort((a, b) => ZONE_RANK[(buf.byItem[a.item_id] || {}).zone || "green"] - ZONE_RANK[(buf.byItem[b.item_id] || {}).zone || "green"]);
+    const blocks = await Promise.all(list.map(async (p) => {
+      const z = buf.byItem[p.item_id];
+      return `<section class="panel"><div class="panel-header"><h3>${esc(p.pr_no)} · ${esc(itemLabel(p.item))} · ${fmt(p.qty)} ${p.item ? p.item.stock_uom : ""}</h3><div class="actions">${z ? zoneBadge(z.zone, STOCK_WORDS) : ""}</div></div><div class="panel-body">
+        <p class="muted small">Needed by ${dt(p.needed_by)} at ${esc(p.unit)}. ${esc(p.reason || "")}</p>
+        ${await supplierComparison(p.item_id, { choose: true })}
+        <div class="inline-form" style="margin-top:12px">
+          <div class="field" style="min-width:280px"><label>Supplier for this PO</label><select name="vendor" required>${opts(vs, "id", (v) => `${v.name}${v.payment_terms ? " (" + v.payment_terms + ")" : ""}`, "", "Choose a supplier")}</select></div>
+          <div class="field"><label>Price each</label><input name="rate" type="number" step="any" min="0" /></div>
+          <div class="form-actions"><button class="btn" data-act="pr-to-po" data-id="${p.id}" data-done="PO made! Now release it for verification.">Make PO</button></div>
+        </div></div></section>`;
+    }));
+    return pageHeader("7. Compare and choose", "Compare every supplier we bought this from: price, last 5 invoices, payment terms and lead time. Choose one and make the PO.") +
+      (blocks.join("") || panel("Nothing to compare", '<p class="muted">No open requisitions. <a href="#pr">Make a requisition first.</a></p>'));
+  };
+
+  // ---------- Import from Expert ----------
+  let pendingBackup = null;
+  VIEWS.import = async () => {
+    const hist = must(await sb.from("expert_import").select("*").order("started_at", { ascending: false }).limit(20));
+    const baselineDone = hist.some((h) => h.is_baseline && h.finished_at);
+    const rows = hist.map((h) => `<tr><td>${dtm(h.started_at)}</td><td>${esc(h.backup_label)}</td><td>${h.is_baseline ? badge("First import", "blue") : badge("Update", "gray")}</td><td>${h.finished_at ? badge("Done", "green") : badge("Not finished", "red")}</td><td class="small">${h.counts ? esc(Object.entries(h.counts).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · ")) : "—"}</td></tr>`).join("")
+      || '<tr><td colspan="5" class="muted">No imports yet.</td></tr>';
+    return pageHeader("Import from Expert", "Choose the BKUPEXP.DAT file from your Expert backup. Things, suppliers, customers, purchase history and new store challans come in.") + `
+      ${panel("1. Choose the backup", `<div class="inline-form">
+          <div class="field" style="min-width:320px"><label>Expert backup file (BKUPEXP.DAT)</label><input id="expert-file" type="file" accept=".dat,.DAT,.zip,.ZIP" /></div>
+          <div class="field"><label>Place for new deliveries and stock</label><select id="expert-unit">${UNITS.map((u) => `<option>${u}</option>`).join("")}</select></div></div>
+        <p class="muted small" style="margin-top:8px">${baselineDone
+          ? "Your first import is done. This import adds new things, suppliers and customers, updates names, adds new purchase bills, and turns every new store challan into a delivery waiting for the store check."
+          : "This is the first import. Stock for each thing is set from Expert's closing quantity, and challans already in this backup are marked as done. From the next import on, new challans become deliveries."}</p>
+        <div id="expert-preview" style="margin-top:12px"></div>`)}
+      ${panel("Past imports", `<div class="table-wrap"><table><thead><tr><th>When</th><th>Backup</th><th>Kind</th><th>How it went</th><th>What came in</th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
+  };
+
+  document.addEventListener("change", async (e) => {
+    if (e.target.id !== "expert-file" || !e.target.files.length) return;
+    const box = document.getElementById("expert-preview");
+    box.innerHTML = '<p class="muted">Reading the backup…</p>';
+    try {
+      const zip = await window.JSZip.loadAsync(e.target.files[0]);
+      const b = await window.ExpertBackup.readBackup(zip);
+      pendingBackup = b;
+      const types = {};
+      for (const i of b.items) types[i.item_type] = (types[i.item_type] || 0) + 1;
+      box.innerHTML = `<div class="cards-row">
+          <div class="card"><div class="card-body"><div class="card-label">Things</div><div class="card-value">${fmt(b.items.length)}</div><div class="sub">${esc(Object.entries(types).map(([k, v]) => `${k} ${v}`).join(", "))}</div></div></div>
+          <div class="card"><div class="card-body"><div class="card-label">Suppliers</div><div class="card-value">${fmt(b.suppliers.length)}</div><div class="sub">Customers: ${fmt(b.customers.length)}</div></div></div>
+          <div class="card"><div class="card-body"><div class="card-label">Purchase bill lines</div><div class="card-value">${fmt(b.purchases.length)}</div><div class="sub">For price comparison</div></div></div>
+          <div class="card"><div class="card-body"><div class="card-label">Store challans</div><div class="card-value">${fmt(b.challans.length)}</div><div class="sub">${esc(b.period)}</div></div></div>
+        </div>
+        <p><strong>${esc(b.label)}</strong></p>
+        <div class="form-actions"><button type="button" class="btn" id="expert-run">Import now</button></div>
+        <div id="expert-progress" class="muted" style="margin-top:10px"></div>`;
+    } catch (err) {
+      pendingBackup = null;
+      box.innerHTML = `<p class="err-text">${esc(friendly(err))}</p>`;
+    }
+  });
+
+  document.addEventListener("click", async (e) => {
+    if (e.target.id !== "expert-run" || !pendingBackup) return;
+    const btn = e.target;
+    const b = pendingBackup;
+    const unit = document.getElementById("expert-unit").value;
+    const out = document.getElementById("expert-progress");
+    const say = (t) => { out.textContent = t; };
+    const batches = async (label, rows, size, fn) => {
+      const total = {};
+      for (let i = 0; i < rows.length; i += size) {
+        say(`${label}: ${Math.min(i + size, rows.length)} of ${rows.length}…`);
+        const r = must(await fn(rows.slice(i, i + size)));
+        for (const k of Object.keys(r)) total[k] = Array.isArray(r[k]) ? (total[k] || []).concat(r[k]) : (total[k] || 0) + r[k];
+      }
+      return total;
+    };
+    btn.disabled = true;
+    try {
+      const st = must(await sb.rpc("expert_import_start", { p_label: b.label, p_taken: b.label.replace(/^.*taken on /i, "") }));
+      const id = st.import_id;
+      const counts = { baseline: st.baseline };
+      counts.things = await batches("Things", b.items.map(({ group, qty, ...rest }) => rest), 250, (rows) => sb.rpc("expert_upsert_items", { p_rows: rows }));
+      counts.suppliers = await batches("Suppliers", b.suppliers, 300, (rows) => sb.rpc("expert_upsert_parties", { p_kind: "vendor", p_rows: rows }));
+      counts.customers = await batches("Customers", b.customers, 300, (rows) => sb.rpc("expert_upsert_parties", { p_kind: "customer", p_rows: rows }));
+      counts.purchase_lines = await batches("Purchase bills", b.purchases, 400, (rows) => sb.rpc("expert_add_purchase_lines", { p_rows: rows }));
+      if (st.baseline) {
+        counts.opening_stock = await batches("Opening stock", b.items.filter((i) => i.qty !== 0).map((i) => ({ expert_code: i.expert_code, qty: i.qty })), 300,
+          (rows) => sb.rpc("expert_opening_stock", { p_import_id: id, p_unit: unit, p_rows: rows }));
+      }
+      const ch = st.baseline ? b.challans.map(({ lines, ...rest }) => rest) : b.challans;
+      counts.challans = await batches(st.baseline ? "Marking challans as done" : "New deliveries", ch, 300,
+        (rows) => sb.rpc("expert_challans", { p_import_id: id, p_unit: unit, p_rows: rows }));
+      must(await sb.rpc("expert_import_finish", { p_import_id: id, p_counts: counts }));
+      pendingBackup = null;
+      toast(st.baseline ? "First import done!" : `Import done. ${counts.challans.deliveries_created || 0} new deliveries are waiting for the store check.`, "success");
+      await route();
+    } catch (err) {
+      say("Stopped: " + friendly(err) + " You can run the same backup again; nothing is added twice.");
+      toast(friendly(err), "error");
+      btn.disabled = false;
+    }
   });
 
   // ---------- row actions ----------
@@ -1342,7 +1533,11 @@
   });
 
   // ---------- router ----------
+  // Only the latest navigation may draw the page: a slow page that finishes late must not
+  // replace the page the person has already moved on to.
+  let routeSeq = 0;
   async function route() {
+    const mySeq = ++routeSeq;
     const raw = location.hash.replace(/^#/, "") || "dashboard";
     const [path, query = ""] = raw.split("?");
     const [name, id] = path.split("/");
@@ -1355,9 +1550,10 @@
     }
     main.innerHTML = '<p class="muted">Loading…</p>';
     try {
-      main.innerHTML = await view(id, params);
+      const html = await view(id, params);
+      if (mySeq === routeSeq) main.innerHTML = html;
     } catch (e) {
-      main.innerHTML = `<section class="panel"><div class="panel-body">Could not load this page: ${esc(friendly(e))}</div></section>`;
+      if (mySeq === routeSeq) main.innerHTML = `<section class="panel"><div class="panel-body">Could not load this page: ${esc(friendly(e))}</div></section>`;
     }
   }
 
